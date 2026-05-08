@@ -9,7 +9,16 @@ export const auth = getAuth(app);
 
 export const googleProvider = new GoogleAuthProvider();
 
-export const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
+export const loginWithGoogle = async () => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result;
+  } catch (error: any) {
+    console.error("Login error:", error);
+    alert(`로그인 실패: ${error.message}\n\n1. AI Studio 우측 상단의 '새 탭에서 열기' 버튼을 눌러 새 창에서 시도해보세요.\n2. Firebase Console(Authentication > Settings > Authorized domains)에 현재 도메인이 등록되어 있는지 확인해주세요.`);
+    throw error;
+  }
+};
 export const logout = () => signOut(auth);
 
 // Test Connection
