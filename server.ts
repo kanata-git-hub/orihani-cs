@@ -47,7 +47,12 @@ async function startServer() {
   app.post('/api/generate-analysis', async (req, res) => {
     try {
       const { systemInstruction, prompt } = req.body;
-      const text = await generateWithRetry('gemini-2.5-flash', systemInstruction, prompt);
+      let text;
+      try {
+        text = await generateWithRetry('gemini-3-flash-preview', systemInstruction, prompt);
+      } catch (err) {
+        text = await generateWithRetry('gemini-3.1-pro-preview', systemInstruction, prompt);
+      }
       res.json({ text });
     } catch (error: any) {
       console.error('API Error:', error);
