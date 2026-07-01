@@ -10,7 +10,7 @@ export function HomePage() {
 
   return (
     <div className="max-w-3xl mx-auto mt-20 text-center">
-      <h2 className="text-5xl font-extrabold text-[#552c24] mb-6 leading-tight">오리한의원 실장 업무를 AI와 함께</h2>
+      <h2 className="text-5xl font-extrabold text-[#552c24] mb-6 leading-tight">오리 실장 업무를 AI와 함께</h2>
       <p className="text-2xl text-[#552c24]/80 mb-12 font-medium">서비스를 이용하시려면 로그인이 필요합니다.</p>
       <button 
         onClick={loginWithGoogle}

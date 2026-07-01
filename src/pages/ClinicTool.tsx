@@ -12,7 +12,6 @@ import { ResultCard } from '../components/ResultCard';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import personaImg from '../image/persona.png';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 
@@ -146,7 +145,7 @@ export function ClinicTool() {
           >
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden bg-white shadow-sm border border-[#552c24]/10 shrink-0">
-                <img src={personaImg} alt="AI 실장" className="w-full h-full object-cover" />
+                <img src="/icon.png" alt="AI 실장" className="w-full h-full object-cover" />
               </div>
               <div className="flex-1">
                 <div className="whitespace-pre-wrap text-[#552c24] leading-relaxed text-xl font-bold">

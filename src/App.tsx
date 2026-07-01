@@ -1,28 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ShieldCheck, LogOut, LogIn } from 'lucide-react';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { useAuth } from './contexts/AuthContext';
 import { loginWithGoogle, logout } from './firebase';
-import personaImg from './image/persona.png';
 import { HomePage } from './pages/HomePage';
 import { ClinicTool } from './pages/ClinicTool';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { SplashScreen } from './components/SplashScreen';
+import { PWAInstaller } from './components/PWAInstaller';
 
 export default function App() {
   const { user, isAdmin } = useAuth();
+  const [showSplash, setShowSplash] = useState(true);
 
   return (
     <BrowserRouter>
+      {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
       <div className="min-h-screen bg-[#fffdfa] text-[#552c24] selection:bg-[#ffcd4a]/40 selection:text-[#552c24]">
         <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-[#552c24]/10 px-6 py-4">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
             <Link to="/" className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden bg-white shadow-sm border border-[#552c24]/10">
-                <img src={personaImg} alt="오리한의원" className="w-full h-full object-cover" />
+                <img src="/icon.png" alt="오리 실장" className="w-full h-full object-cover" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-[#552c24]">오리한의원 수석 실장 AI</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-[#552c24]">오리 실장</h1>
                 <p className="text-sm uppercase tracking-widest text-[#552c24]/70 font-bold">Ori Clinic Manager</p>
               </div>
             </Link>
@@ -55,12 +58,13 @@ export default function App() {
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-6 py-10">
+        <main className="max-w-7xl mx-auto px-6 py-10 relative">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/tool" element={<ProtectedRoute><ClinicTool /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute requireAdmin={true}><AdminDashboard /></ProtectedRoute>} />
           </Routes>
+          <PWAInstaller />
         </main>
       </div>
     </BrowserRouter>
