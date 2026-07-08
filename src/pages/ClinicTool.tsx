@@ -166,9 +166,18 @@ export function ClinicTool() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xl font-bold uppercase tracking-widest text-[#552c24] flex items-center gap-2">
-              <MessageSquare size={20} /> 환자 메시지 또는 상황
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xl font-bold uppercase tracking-widest text-[#552c24] flex items-center gap-2">
+                <MessageSquare size={20} /> 환자 메시지 또는 상황
+              </label>
+              <button
+                type="button"
+                onClick={() => setInput('')}
+                className="text-sm px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full font-medium transition-colors"
+              >
+                지우기
+              </button>
+            </div>
             <textarea
               value={input} onChange={(e) => setInput(e.target.value)}
               placeholder="환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."
