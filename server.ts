@@ -48,7 +48,7 @@ async function startServer() {
       const { systemInstruction, prompt } = req.body;
       let text;
       try {
-        text = await generateWithRetry('gemini-3-flash-preview', systemInstruction, prompt);
+        text = await generateWithRetry('gemini-3.6-flash', systemInstruction, prompt);
       } catch (err) {
         text = await generateWithRetry('gemini-3.1-pro-preview', systemInstruction, prompt);
       }
