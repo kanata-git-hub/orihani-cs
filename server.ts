@@ -28,7 +28,7 @@ async function startServer() {
           config: {
             systemInstruction,
             temperature: 0.7,
-            maxOutputTokens: 2000,
+            maxOutputTokens: 8192,
           },
         });
         return response.text;
