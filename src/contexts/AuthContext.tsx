@@ -1,3 +1,4 @@
+import { initializeDraftOwner, scopedStorage } from '../accountStorage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
@@ -16,6 +17,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      try { initializeDraftOwner(localStorage, currentUser?.uid || null); } catch { /* Storage may be disabled. */ }
       setUser(currentUser);
       setLoading(false);
     });
