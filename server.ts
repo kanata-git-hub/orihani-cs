@@ -1,3 +1,4 @@
+import { requireUser } from './serverSecurity.ts';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -15,6 +16,7 @@ async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(cors());
+  app.use('/api/generate-analysis', requireUser);
   app.use(express.json({ limit: '50mb' }));
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

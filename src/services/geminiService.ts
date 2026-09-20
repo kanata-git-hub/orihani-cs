@@ -1,3 +1,4 @@
+import { authFetch } from '../authFetch';
 import { SYSTEM_INSTRUCTION } from "../constants";
 import { AnalyzeParams } from "../types";
 
@@ -11,7 +12,7 @@ export const analyzePatientMessage = async (params: AnalyzeParams): Promise<stri
 응대 상황: ${selectedSituations.join(", ") || "미지정"}
 추가 요청: ${direction || "없음"}`;
 
-  const response = await fetch('/api/generate-analysis', {
+  const response = await authFetch('/api/generate-analysis', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

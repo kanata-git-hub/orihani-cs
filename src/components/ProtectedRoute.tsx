@@ -22,5 +22,5 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
     return <Navigate to="/" replace />;
   }
 
-  return <>{children}</>;
+  return <React.Fragment key={user.uid}>{children}</React.Fragment>;
 };
