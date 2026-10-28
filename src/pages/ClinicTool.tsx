@@ -129,16 +129,11 @@ export function ClinicTool() {
     }
   };
 
-  const handleReset = () => {
+  const handleClearInputs = () => {
     setPatientName('');
     setSymptoms('');
     setInput('');
     setDirection('');
-    setSelectedTreatments([]);
-    setSelectedTraits([]);
-    setSelectedSituations([]);
-    setResult(null);
-    setError(null);
   };
 
   return (
@@ -168,6 +163,14 @@ export function ClinicTool() {
 
       <section className="max-w-5xl mx-auto space-y-6">
         <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+            <span id="clear-inputs-help" className="text-xs sm:text-sm text-[#552c24]/70">선택한 메뉴는 유지됩니다.</span>
+            <button type="button" onClick={handleClearInputs} aria-describedby="clear-inputs-help"
+              className="min-h-11 inline-flex items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-sm sm:text-base font-bold text-gray-700 hover:bg-gray-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffcd4a] focus-visible:ring-offset-2">
+              <RefreshCw size={16} aria-hidden="true" />
+              입력 내용 전체 지우기
+            </button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label htmlFor="patient-name" className="text-base sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
@@ -213,18 +216,9 @@ export function ClinicTool() {
           )}
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <label htmlFor="patient-situation" className="text-base sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
-                <MessageSquare size={20} className="shrink-0" /> 환자 메시지 또는 상황{isFollowup ? " (선택)" : ""}
-              </label>
-              <button
-                type="button"
-                onClick={() => setInput('')}
-                className="text-sm px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full font-medium transition-colors"
-              >
-                지우기
-              </button>
-            </div>
+            <label htmlFor="patient-situation" className="text-base sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
+              <MessageSquare size={20} className="shrink-0" /> 환자 메시지 또는 상황{isFollowup ? " (선택)" : ""}
+            </label>
             <textarea id="patient-situation"
               value={input} onChange={(e) => setInput(e.target.value)}
               placeholder={isFollowup ? "추가 상황 메모 (선택) — 고정 안내 문자에는 이름과 질환·증상만 반영합니다." : "환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."}
