@@ -4,7 +4,7 @@ import {
   RefreshCw, PlusCircle, Stethoscope
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TREATMENTS, TRAITS, SITUATIONS, INITIAL_GREETING } from '../constants';
+import { TREATMENT_GROUPS, TRAIT_GROUPS, SITUATION_GROUPS, INITIAL_GREETING } from '../constants';
 import { AnalysisResult } from '../types';
 import { analyzePatientMessage } from '../services/geminiService';
 import { TagSelector } from '../components/TagSelector';
@@ -200,9 +200,9 @@ export function ClinicTool() {
           </p>
 
           <div className="space-y-4">
-            <TagSelector icon={Stethoscope} title="치료 종류 (중복 선택 가능)" options={TREATMENTS} selectedOptions={selectedTreatments} onToggle={toggleTreatment} />
-            <TagSelector icon={MessageSquare} title="응대 상황 (중복 선택 가능)" options={SITUATIONS} selectedOptions={selectedSituations} onToggle={toggleSituation} />
-            <TagSelector icon={UserIcon} title="환자 특징 (중복 선택 가능)" options={TRAITS} selectedOptions={selectedTraits} onToggle={toggleTrait} />
+            <TagSelector icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />
+            <TagSelector icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ 원장: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
+            <TagSelector icon={UserIcon} title="환자 특징" groups={TRAIT_GROUPS} tone="violet" selectedOptions={selectedTraits} onToggle={toggleTrait} />
           </div>
 
           {isFollowup && (
