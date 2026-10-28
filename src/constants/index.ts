@@ -1,6 +1,7 @@
+import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
 import { HERBAL_FOLLOWUP_SITUATION } from '../herbalFollowup';
 
-export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약", "교통사고", "다이어트"];
+export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약", ...SYMPTOM_TREATMENT_OPTIONS, "교통사고", "다이어트"];
 
 export const TRAITS = [
   "운동/취미광", "직장인/가사노동", "만성/유착(1개월↑)", "지인소개/단골", 

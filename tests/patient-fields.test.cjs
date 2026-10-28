@@ -8,12 +8,18 @@ function loadService() {
   let submitted;
   let calls = 0;
   const exported = {};
+  const symptomHelpers = {};
+  const helperSource = ts.transpileModule(fs.readFileSync('src/patientSymptoms.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+  }).outputText;
+  vm.runInNewContext(helperSource, { exports: symptomHelpers });
   const source = ts.transpileModule(fs.readFileSync('src/services/geminiService.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText;
   vm.runInNewContext(source, {
     exports: exported,
     require(id) {
+      if (id === '../patientSymptoms') return symptomHelpers;
       if (id === '../authFetch') return { authFetch: async (_url, options) => {
         calls++; submitted = JSON.parse(options.body);
         return { ok: true, json: async () => ({ text: 'generated' }) };
@@ -56,4 +62,20 @@ test('first 15-day template does not call the generative API', async () => {
   const result = await service.generate({ ...params, patientName: '김○○', symptoms: '만성피로', selectedSituations: ['일반한약 첫 15일 마무리 안내'] });
   assert.equal(result, 'fixed template');
   assert.equal(service.calls(), 0);
+});
+
+test('symptom choices produce the same ordinary prompt as direct symptom input', async () => {
+  const selected = loadService();
+  const typed = loadService();
+  await selected.generate({ ...params, symptoms: '', selectedTreatments: ['침', '소화불량', '피로'] });
+  await typed.generate({ ...params, symptoms: '소화불량, 피로' });
+  assert.equal(selected.request().prompt, typed.request().prompt);
+  assert.match(selected.request().prompt, /선택된 치료: 침\n/);
+});
+
+test('a symptom choice alone does not invent a herbal treatment', async () => {
+  const service = loadService();
+  await service.generate({ ...params, symptoms: '', selectedTreatments: ['피로'] });
+  assert.match(service.request().prompt, /질환·증상: 피로/);
+  assert.match(service.request().prompt, /선택된 치료: 미지정/);
 });

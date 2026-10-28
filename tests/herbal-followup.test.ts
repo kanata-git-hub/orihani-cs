@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildHerbalFollowup, herbalFollowupError, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
+import { resolvePatientSymptoms } from '../src/patientSymptoms.ts';
 import type { AnalyzeParams } from '../src/types/index.ts';
 
 const params: AnalyzeParams = {
@@ -56,4 +57,40 @@ test('missing template fields are rejected but ordinary scenarios remain optiona
   assert.match(herbalFollowupError({ ...params, patientName: ' ' })!, /환자 이름/);
   assert.match(herbalFollowupError({ ...params, symptoms: '' })!, /질환·증상/);
   assert.equal(herbalFollowupError({ ...params, patientName: '', symptoms: '', selectedSituations: ['신환 상담/문의'] }), null);
+});
+
+test('each symptom button is identical to typing that symptom for the first contact', () => {
+  for (const symptom of ['소화불량', '피로']) {
+    const selected = { ...params, symptoms: '', selectedTreatments: ['한약', symptom] };
+    assert.equal(herbalFollowupError(selected), null);
+    assert.equal(buildHerbalFollowup(selected), buildHerbalFollowup({ ...params, symptoms: symptom }));
+  }
+});
+
+test('both symptom buttons and manual additional symptoms are included once', () => {
+  const selected = { ...params, symptoms: '피로, 두통', selectedTreatments: ['소화불량', '피로'] };
+  assert.equal(resolvePatientSymptoms(selected), '피로, 두통, 소화불량');
+  assert.match(buildHerbalFollowup(selected), /피로, 두통, 소화불량은/);
+  assert.equal(resolvePatientSymptoms({ ...params, symptoms: '', selectedTreatments: ['소화불량', '피로'] }), '소화불량, 피로');
+});
+
+test('deselecting buttons preserves typed symptoms and restores required validation', () => {
+  const selected = { ...params, symptoms: '불면', selectedTreatments: ['한약', '피로'] };
+  assert.equal(resolvePatientSymptoms(selected), '불면, 피로');
+  assert.equal(selected.symptoms, '불면');
+  assert.equal(resolvePatientSymptoms({ ...selected, selectedTreatments: ['한약'] }), '불면');
+  assert.match(herbalFollowupError({ ...params, symptoms: '', selectedTreatments: ['한약'] })!, /질환·증상/);
+});
+
+test('shortcuts do not infer chronic diagnoses or remove qualified manual symptoms', () => {
+  assert.equal(resolvePatientSymptoms({ ...params, symptoms: '', selectedTreatments: ['피로'] }), '피로');
+  assert.equal(resolvePatientSymptoms({ ...params, symptoms: '오후 피로', selectedTreatments: ['피로'] }), '오후 피로, 피로');
+  assert.equal(resolvePatientSymptoms({ ...params, symptoms: '두통\n불면', selectedTreatments: ['한약'] }), '두통\n불면');
+});
+
+test('symptom buttons do not bypass accident and diet exclusions', () => {
+  for (const treatment of ['교통사고', '다이어트']) {
+    const selected = { ...params, symptoms: '', selectedTreatments: ['소화불량', '피로', treatment] };
+    assert.match(herbalFollowupError(selected)!, /제외한 일반한약/);
+  }
 });
