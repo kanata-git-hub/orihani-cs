@@ -1,3 +1,5 @@
+import { HERBAL_FOLLOWUP_SITUATION } from '../herbalFollowup';
+
 export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약", "교통사고", "다이어트"];
 
 export const TRAITS = [
@@ -6,6 +8,7 @@ export const TRAITS = [
 ];
 
 export const SITUATIONS = [
+  HERBAL_FOLLOWUP_SITUATION,
   "신환 상담/문의", "예약 유도/확정", "예약 변경/취소", "치료 후 반응/통증", 
   "비용/패키지 상담", "한약 복용/경과", "컴플레인/불만", "단순 안부/리콜", "원장", "리뷰 답변"
 ];

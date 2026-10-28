@@ -5,6 +5,8 @@ export interface AnalysisResult {
 }
 
 export interface AnalyzeParams {
+  patientName?: string;
+  symptoms?: string;
   input: string;
   direction: string;
   selectedTreatments: string[];
