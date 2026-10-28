@@ -1,12 +1,19 @@
 import { authFetch } from '../authFetch';
 import { SYSTEM_INSTRUCTION } from "../constants";
 import { AnalyzeParams } from "../types";
+import { isHerbalFollowup, buildHerbalFollowup } from '../herbalFollowup';
 
 export const analyzePatientMessage = async (params: AnalyzeParams): Promise<string> => {
+  if (isHerbalFollowup(params)) return buildHerbalFollowup(params);
+
   const { input, direction, selectedTreatments, selectedTraits, selectedSituations } = params;
+  const patientContext = [
+    params.patientName?.trim() && `환자 이름: ${params.patientName.trim()}`,
+    params.symptoms?.trim() && `질환·증상: ${params.symptoms.trim()}`
+  ].filter(Boolean).join("\n");
 
   const prompt = `[환자 및 상황 정보]
-메시지/상황: ${input || "정보 없음"}
+${patientContext ? patientContext + "\n" : ""}메시지/상황: ${input || "정보 없음"}
 선택된 치료: ${selectedTreatments.join(", ") || "미지정"}
 환자 특징: ${selectedTraits.join(", ") || "미지정"}
 응대 상황: ${selectedSituations.join(", ") || "미지정"}

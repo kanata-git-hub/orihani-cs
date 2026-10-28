@@ -14,13 +14,14 @@ import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import { useLocalStorage } from '../hooks/useLocalStorage';
+import { isHerbalFollowup, herbalFollowupError } from '../herbalFollowup';
 
 const renderWithBoldLabels = (text: string) => {
   if (!text) return text;
   const parts = text.split(/(속마음:|가이드:|거절 시:|핵심:)/g);
   return parts.map((part, index) => {
     if (["속마음:", "가이드:", "거절 시:", "핵심:"].includes(part)) {
-      return <strong key={index} className="font-extrabold text-2xl text-[#552c24]">{part}</strong>;
+      return <strong key={index} className="font-extrabold text-lg sm:text-2xl text-[#552c24]">{part}</strong>;
     }
     return <React.Fragment key={index}>{part}</React.Fragment>;
   });
@@ -28,6 +29,8 @@ const renderWithBoldLabels = (text: string) => {
 
 export function ClinicTool() {
   const { user } = useAuth();
+  const [patientName, setPatientName] = useLocalStorage<string>('app_patient_name', '');
+  const [symptoms, setSymptoms] = useLocalStorage<string>('app_symptoms', '');
   const [input, setInput] = useLocalStorage<string>('app_input', "");
   const [direction, setDirection] = useLocalStorage<string>('app_direction', "");
   const [selectedTreatments, setSelectedTreatments] = useLocalStorage<string[]>('app_treatments', []);
@@ -39,6 +42,10 @@ export function ClinicTool() {
   const [error, setError] = useState<string | null>(null);
   
   const resultRef = useRef<HTMLDivElement>(null);
+  const params = { patientName, symptoms, input, direction, selectedTreatments, selectedTraits, selectedSituations };
+  const isFollowup = isHerbalFollowup(params);
+  const followupError = herbalFollowupError(params);
+  const canSubmit = isFollowup ? !followupError : Boolean(input.trim());
 
   const toggleTreatment = (t: string) => setSelectedTreatments(prev => prev.includes(t) ? prev.filter(i => i !== t) : [...prev, t]);
   const toggleTrait = (t: string) => setSelectedTraits(prev => prev.includes(t) ? prev.filter(i => i !== t) : [...prev, t]);
@@ -46,20 +53,14 @@ export function ClinicTool() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() && selectedTreatments.length === 0 && selectedTraits.length === 0) return;
+    if (isLoading || !canSubmit) return;
 
     setIsLoading(true);
     setError(null);
     setResult(null);
 
     try {
-      const text = await analyzePatientMessage({
-        input,
-        direction,
-        selectedTreatments,
-        selectedTraits,
-        selectedSituations
-      });
+      const text = await analyzePatientMessage(params);
 
       const sections = text.split(/###\d###/);
       let newResult: AnalysisResult;
@@ -85,6 +86,8 @@ export function ClinicTool() {
         try {
           await addDoc(collection(db, pathForWrite), {
             userId: user.uid,
+            patientName,
+            symptoms,
             input,
             direction,
             selectedTreatments,
@@ -124,6 +127,8 @@ export function ClinicTool() {
   };
 
   const handleReset = () => {
+    setPatientName('');
+    setSymptoms('');
     setInput('');
     setDirection('');
     setSelectedTreatments([]);
@@ -141,14 +146,15 @@ export function ClinicTool() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="max-w-5xl mx-auto bg-white border border-[#552c24]/10 rounded-[32px] p-8 shadow-sm mb-10"
+            className="max-w-5xl mx-auto bg-white border border-[#552c24]/10 rounded-2xl sm:rounded-[32px] p-4 sm:p-8 shadow-sm mb-5 sm:mb-10"
           >
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden bg-white shadow-sm border border-[#552c24]/10 shrink-0">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="hidden sm:flex w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden bg-white shadow-sm border border-[#552c24]/10 shrink-0">
                 <img src="/icon.png" alt="AI 실장" className="w-full h-full object-cover" />
               </div>
-              <div className="flex-1">
-                <div className="whitespace-pre-wrap text-[#552c24] leading-relaxed text-xl font-bold">
+              <div className="flex-1 min-w-0">
+                <p className="sm:hidden text-base font-bold leading-relaxed">환자 정보와 상황을 입력해 주세요. 오리 실장이 응대 문자를 준비해 드립니다.</p>
+                <div className="hidden sm:block whitespace-pre-wrap text-[#552c24] leading-relaxed text-xl font-bold">
                   {INITIAL_GREETING}
                 </div>
               </div>
@@ -158,17 +164,50 @@ export function ClinicTool() {
       </AnimatePresence>
 
       <section className="max-w-5xl mx-auto space-y-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label htmlFor="patient-name" className="text-base sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
+                <UserIcon size={20} /> 환자 이름
+              </label>
+              <input id="patient-name" type="text" value={patientName}
+                onChange={e => setPatientName(e.target.value)}
+                placeholder="예: 김○○" autoComplete="off" maxLength={100}
+                required={isFollowup} aria-describedby="patient-fields-help"
+                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-base sm:text-xl" />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="patient-symptoms" className="text-base sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
+                <Stethoscope size={20} /> 질환·증상
+              </label>
+              <input id="patient-symptoms" type="text" value={symptoms}
+                onChange={e => setSymptoms(e.target.value)}
+                placeholder="예: 만성 소화불량, 만성피로" autoComplete="off" maxLength={300}
+                required={isFollowup} aria-describedby="patient-fields-help"
+                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-base sm:text-xl" />
+            </div>
+          </div>
+          <p id="patient-fields-help" className="text-sm text-[#552c24]/70 leading-relaxed">
+            모든 응대에 함께 반영합니다. 첫 15일 안내는 두 항목을 입력하고, 다른 응대에서는 필요한 항목만 입력해 주세요.
+          </p>
+
           <div className="space-y-4">
             <TagSelector icon={Stethoscope} title="치료 종류 (중복 선택 가능)" options={TREATMENTS} selectedOptions={selectedTreatments} onToggle={toggleTreatment} />
             <TagSelector icon={MessageSquare} title="응대 상황 (중복 선택 가능)" options={SITUATIONS} selectedOptions={selectedSituations} onToggle={toggleSituation} />
             <TagSelector icon={UserIcon} title="환자 특징 (중복 선택 가능)" options={TRAITS} selectedOptions={selectedTraits} onToggle={toggleTrait} />
           </div>
 
+          {isFollowup && (
+            <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-sm leading-relaxed" role="status">
+              이름과 질환·증상으로 첫 15일 마무리 문자를 만듭니다. 교통사고·다이어트는 제외합니다.
+              {followupError && <p className="mt-1 font-bold">{followupError}</p>}
+            </div>
+          )}
+
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xl font-bold uppercase tracking-widest text-[#552c24] flex items-center gap-2">
-                <MessageSquare size={20} /> 환자 메시지 또는 상황
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="patient-situation" className="text-base sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
+                <MessageSquare size={20} className="shrink-0" /> 환자 메시지 또는 상황{isFollowup ? " (선택)" : ""}
               </label>
               <button
                 type="button"
@@ -178,31 +217,31 @@ export function ClinicTool() {
                 지우기
               </button>
             </div>
-            <textarea
+            <textarea id="patient-situation"
               value={input} onChange={(e) => setInput(e.target.value)}
-              placeholder="환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."
-              className="w-full h-48 p-6 bg-white border border-[#552c24]/20 rounded-3xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all resize-none text-2xl leading-relaxed shadow-sm font-medium"
-              required
+              placeholder={isFollowup ? "추가 상황 메모 (선택) — 고정 안내 문자에는 이름과 질환·증상만 반영합니다." : "환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."}
+              className="w-full h-40 sm:h-48 p-4 sm:p-6 bg-white border border-[#552c24]/20 rounded-2xl sm:rounded-3xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all resize-y text-base sm:text-2xl leading-relaxed shadow-sm font-medium"
+              required={!isFollowup}
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-xl font-bold uppercase tracking-widest text-[#552c24] flex items-center gap-2">
+            <label htmlFor="response-direction" className="text-base sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
               <PlusCircle size={20} /> 특별히 원하는 방향 (선택)
             </label>
             <input
-              type="text" value={direction} onChange={(e) => setDirection(e.target.value)}
+              id="response-direction" type="text" value={direction} onChange={(e) => setDirection(e.target.value)}
               placeholder="예: 방문 유도, 부드러운 거절, 비용 안내 등"
-              className="w-full p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all shadow-sm text-xl font-medium"
+              className="w-full p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all shadow-sm text-base sm:text-xl font-medium"
             />
           </div>
 
-          <button type="submit" disabled={isLoading || !input.trim()}
-            className={`w-full py-6 rounded-full flex items-center justify-center gap-3 font-bold text-2xl transition-all shadow-xl ${
-              isLoading || !input.trim() ? 'bg-[#552c24]/10 text-[#552c24]/40 cursor-not-allowed' : 'bg-[#ffcd4a] text-[#552c24] hover:bg-[#ffcd4a]/90 active:scale-[0.98] shadow-[#ffcd4a]/20'
+          <button type="submit" disabled={isLoading || !canSubmit}
+            className={`w-full py-4 sm:py-6 rounded-2xl sm:rounded-full flex items-center justify-center gap-3 font-bold text-lg sm:text-2xl transition-all shadow-xl ${
+              isLoading || !canSubmit ? 'bg-[#552c24]/10 text-[#552c24]/40 cursor-not-allowed' : 'bg-[#ffcd4a] text-[#552c24] hover:bg-[#ffcd4a]/90 active:scale-[0.98] shadow-[#ffcd4a]/20'
             }`}
           >
-            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />심리 분석 및 답변 생성 중...</>) : (<><Send size={20} />분석 시작하기</>)}
+            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />심리 분석 및 답변 생성 중...</>) : (<><Send size={20} />{isFollowup ? "안내 문자 만들기" : "분석 시작하기"}</>)}
           </button>
         </form>
       </section>
@@ -215,14 +254,15 @@ export function ClinicTool() {
 
       <AnimatePresence>
         {result && (
-          <motion.div ref={resultRef} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="mt-12 grid grid-cols-1 lg:grid-cols-3 gap-8 pb-20">
-            <ResultCard icon={Brain} title="🧠 환자 심리 & 원장님 가이드" content={renderWithBoldLabels(result.strategy)} />
-            <ResultCard icon={MessageSquare} title="✍️ 환자 답변 초안" content={result.responseDraft} isHighlighted={true} actionButton={
-                <button onClick={handleCopy} className="p-3 bg-[#ffcd4a] text-[#552c24] rounded-full hover:bg-[#ffcd4a]/80 transition-all shadow-md active:scale-95">
-                  {copied ? <Check size={20} /> : <Copy size={20} />}
+          <motion.div ref={resultRef} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="mt-8 sm:mt-12 grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 pb-12 items-start scroll-mt-24">
+            <ResultCard className="order-2 lg:order-1" icon={Brain} title="🧠 환자 심리 & 원장님 가이드" content={renderWithBoldLabels(result.strategy)} />
+            <ResultCard className="order-1 lg:order-2" icon={MessageSquare} title="✍️ 환자 답변 초안" content={result.responseDraft} isHighlighted={true} actionButton={
+                <button onClick={handleCopy} aria-label={copied ? "복사 완료" : "문자 복사"} className="shrink-0 flex items-center gap-1.5 min-h-11 px-3 py-2 text-sm whitespace-nowrap bg-[#ffcd4a] text-[#552c24] rounded-full hover:bg-[#ffcd4a]/80 transition-all shadow-md active:scale-95">
+                  {copied ? <Check size={18} /> : <Copy size={18} />}
+                  <span>{copied ? "복사 완료" : "문자 복사"}</span>
                 </button>
               } />
-            <ResultCard icon={ShieldCheck} title="🛡️ 데스크 실전 대처 팁" content={renderWithBoldLabels(result.staffTip)} />
+            <ResultCard className="order-3" icon={ShieldCheck} title="🛡️ 데스크 실전 대처 팁" content={renderWithBoldLabels(result.staffTip)} />
           </motion.div>
         )}
       </AnimatePresence>

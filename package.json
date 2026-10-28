@@ -11,7 +11,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/storage-security.test.ts tests/auth-fetch.test.cjs",
-    "test:rules": "node --test tests/firestore-security.cjs"
+    "test:rules": "node --test tests/firestore-security.cjs",
+    "test:patient": "node --experimental-strip-types --test tests/herbal-followup.test.ts tests/patient-fields.test.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

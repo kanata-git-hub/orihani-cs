@@ -17,6 +17,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: npm run test:security
+      - run: npm run test:patient
       - run: npm run build
         env:
           GEMINI_API_KEY: SECURITY_BUILD_SENTINEL_MUST_NOT_SHIP
