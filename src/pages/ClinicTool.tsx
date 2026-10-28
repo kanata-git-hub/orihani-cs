@@ -151,7 +151,7 @@ export function ClinicTool() {
                 <img src="/icon.png" alt="AI 실장" className="w-full h-full object-cover" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="sm:hidden text-base font-bold leading-relaxed">환자 정보와 상황을 입력해 주세요. 오리 실장이 응대 문자를 준비해 드립니다.</p>
+                <p className="sm:hidden text-lg font-bold leading-7">환자 정보와 상황을 입력해 주세요. 오리 실장이 응대 문자를 준비해 드립니다.</p>
                 <div className="hidden sm:block whitespace-pre-wrap text-[#552c24] leading-relaxed text-xl font-bold">
                   {INITIAL_GREETING}
                 </div>
@@ -163,42 +163,42 @@ export function ClinicTool() {
 
       <section className="max-w-5xl mx-auto space-y-6">
         <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-            <span id="clear-inputs-help" className="text-xs sm:text-sm text-[#552c24]/70">선택한 메뉴는 유지됩니다.</span>
+          <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
+            <span id="clear-inputs-help" className="order-2 sm:order-none text-sm text-[#552c24]/85 sm:text-[#552c24]/70">선택한 메뉴는 유지됩니다.</span>
             <button type="button" onClick={handleClearInputs} aria-describedby="clear-inputs-help"
-              className="min-h-11 inline-flex items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-sm sm:text-base font-bold text-gray-700 hover:bg-gray-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffcd4a] focus-visible:ring-offset-2">
+              className="min-h-12 sm:min-h-11 inline-flex items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-base font-semibold sm:font-bold text-gray-700 hover:bg-gray-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffcd4a] focus-visible:ring-offset-2">
               <RefreshCw size={16} aria-hidden="true" />
               입력 내용 전체 지우기
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label htmlFor="patient-name" className="text-base sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
+              <label htmlFor="patient-name" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
                 <UserIcon size={20} /> 환자 이름
               </label>
               <input id="patient-name" type="text" value={patientName}
                 onChange={e => setPatientName(e.target.value)}
                 placeholder="예: 김○○" autoComplete="off" maxLength={100}
                 required={isFollowup} aria-describedby="patient-fields-help"
-                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-base sm:text-xl" />
+                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-lg sm:text-xl" />
             </div>
             <div className="space-y-2">
-              <label htmlFor="patient-symptoms" className="text-base sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
+              <label htmlFor="patient-symptoms" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
                 <Stethoscope size={20} /> 질환·증상
               </label>
               <input id="patient-symptoms" type="text" value={symptoms}
                 onChange={e => setSymptoms(e.target.value)}
-                placeholder={symptomChoices.length ? "추가 증상이 있으면 입력해 주세요 (선택)" : "직접 입력하거나 아래 소화불량·피로 버튼 선택"} autoComplete="off" maxLength={300}
+                placeholder={symptomChoices.length ? "추가 증상이 있으면 입력해 주세요 (선택)" : "증상 직접 입력 또는 아래 버튼 선택"} autoComplete="off" maxLength={300}
                 required={isFollowup && symptomChoices.length === 0} aria-describedby="patient-fields-help selected-symptoms"
-                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-base sm:text-xl" />
+                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-lg sm:text-xl" />
             </div>
           </div>
           {symptomChoices.length > 0 && (
-            <p id="selected-symptoms" className="text-sm font-bold text-[#552c24]" role="status">
+            <p id="selected-symptoms" className="text-base sm:text-sm font-semibold sm:font-bold text-[#552c24] leading-7 sm:leading-5" role="status">
               반영할 질환·증상: {effectiveSymptoms}
             </p>
           )}
-          <p id="patient-fields-help" className="text-sm text-[#552c24]/70 leading-relaxed">
+          <p id="patient-fields-help" className="text-base sm:text-sm text-[#552c24]/85 sm:text-[#552c24]/70 leading-7 sm:leading-relaxed">
             모든 응대에 함께 반영합니다. 소화불량·피로는 아래 치료 종류에서 선택하면 따로 입력하지 않아도 됩니다.
           </p>
 
@@ -209,32 +209,32 @@ export function ClinicTool() {
           </div>
 
           {isFollowup && (
-            <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-sm leading-relaxed" role="status">
+            <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-base sm:text-sm leading-7 sm:leading-relaxed" role="status">
               환자 이름과 질환·증상 입력 또는 소화불량·피로 버튼 선택으로 문자를 만듭니다. 교통사고·다이어트는 제외합니다.
               {followupError && <p className="mt-1 font-bold">{followupError}</p>}
             </div>
           )}
 
           <div className="space-y-2">
-            <label htmlFor="patient-situation" className="text-base sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
+            <label htmlFor="patient-situation" className="text-lg sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
               <MessageSquare size={20} className="shrink-0" /> 환자 메시지 또는 상황{isFollowup ? " (선택)" : ""}
             </label>
             <textarea id="patient-situation"
               value={input} onChange={(e) => setInput(e.target.value)}
               placeholder={isFollowup ? "추가 상황 메모 (선택) — 고정 안내 문자에는 이름과 질환·증상만 반영합니다." : "환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."}
-              className="w-full h-40 sm:h-48 p-4 sm:p-6 bg-white border border-[#552c24]/20 rounded-2xl sm:rounded-3xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all resize-y text-base sm:text-2xl leading-relaxed shadow-sm font-medium"
+              className="w-full h-40 sm:h-48 p-4 sm:p-6 bg-white border border-[#552c24]/20 rounded-2xl sm:rounded-3xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all resize-y text-lg sm:text-2xl leading-[1.8] sm:leading-relaxed shadow-sm font-medium"
               required={!isFollowup}
             />
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="response-direction" className="text-base sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
+            <label htmlFor="response-direction" className="text-lg sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
               <PlusCircle size={20} /> 특별히 원하는 방향 (선택)
             </label>
             <input
               id="response-direction" type="text" value={direction} onChange={(e) => setDirection(e.target.value)}
               placeholder="예: 방문 유도, 부드러운 거절, 비용 안내 등"
-              className="w-full p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all shadow-sm text-base sm:text-xl font-medium"
+              className="w-full p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all shadow-sm text-lg sm:text-xl font-medium"
             />
           </div>
 
@@ -259,7 +259,7 @@ export function ClinicTool() {
           <motion.div ref={resultRef} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="mt-8 sm:mt-12 grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 pb-12 items-start scroll-mt-24">
             <ResultCard className="order-2 lg:order-1" icon={Brain} title="🧠 환자 심리 & 원장님 가이드" content={renderWithBoldLabels(result.strategy)} />
             <ResultCard className="order-1 lg:order-2" icon={MessageSquare} title="✍️ 환자 답변 초안" content={result.responseDraft} isHighlighted={true} actionButton={
-                <button onClick={handleCopy} aria-label={copied ? "복사 완료" : "문자 복사"} className="shrink-0 flex items-center gap-1.5 min-h-11 px-3 py-2 text-sm whitespace-nowrap bg-[#ffcd4a] text-[#552c24] rounded-full hover:bg-[#ffcd4a]/80 transition-all shadow-md active:scale-95">
+                <button onClick={handleCopy} aria-label={copied ? "복사 완료" : "문자 복사"} className="shrink-0 flex items-center gap-1.5 min-h-12 sm:min-h-11 px-3 py-2 text-base sm:text-sm whitespace-nowrap bg-[#ffcd4a] text-[#552c24] rounded-full hover:bg-[#ffcd4a]/80 transition-all shadow-md active:scale-95">
                   {copied ? <Check size={18} /> : <Copy size={18} />}
                   <span>{copied ? "복사 완료" : "문자 복사"}</span>
                 </button>

@@ -53,30 +53,31 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
   const colors = tones[tone];
 
   return (
-    <section aria-labelledby={headingId} className={`min-w-0 rounded-2xl sm:rounded-3xl border p-4 sm:p-5 ${colors.panel}`}>
+    <section aria-labelledby={headingId} className={`min-w-0 rounded-2xl sm:rounded-3xl border p-3 sm:p-5 ${colors.panel}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <h2 id={headingId} className={`flex items-center gap-2.5 text-lg sm:text-xl font-bold ${colors.heading}`}>
+        <h2 id={headingId} className={`flex items-center gap-2.5 text-xl font-bold ${colors.heading}`}>
           <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${colors.icon}`}>
             <Icon size={20} aria-hidden="true" />
           </span>
           {title}
         </h2>
-        <span className={`text-xs sm:text-sm ${colors.heading}`}>중복 선택 가능</span>
+        <span className={`text-sm ${colors.heading}`}>중복 선택 가능</span>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4 sm:space-y-3">
         {groups.map((group, index) => (
           <div key={group.title} role="group" aria-label={group.title}
-            className={`grid min-w-0 gap-2 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-4 ${index > 0 ? `border-t pt-3 ${colors.divider}` : ''}`}>
-            <p className={`text-sm sm:text-base font-bold sm:pt-3 ${colors.heading}`}>{group.title}</p>
-            <div className="flex min-w-0 flex-wrap gap-2">
+            className={`grid min-w-0 gap-2.5 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-4 ${index > 0 ? `border-t pt-4 sm:pt-3 ${colors.divider}` : ''}`}>
+            <p className={`text-base font-bold sm:pt-3 ${colors.heading}`}>{group.title}</p>
+            <div className="grid min-w-0 grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:gap-2">
               {group.options.map(option => {
                 const selected = selectedOptions.includes(option);
+                const label = optionLabels[option] || option;
                 return (
                   <button key={option} type="button" onClick={() => onToggle(option)}
                     aria-pressed={selected}
-                    className={`inline-flex max-w-full min-h-11 items-center gap-1.5 rounded-xl border px-3 py-2 text-sm sm:text-lg font-bold text-left leading-snug transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${colors.focus} ${selected ? colors.selected : colors.idle}`}>
+                    className={`inline-flex min-w-0 max-w-full min-h-12 sm:min-h-11 items-center gap-1.5 rounded-xl border px-2.5 sm:px-3 py-2.5 sm:py-2 text-lg font-bold text-left leading-normal sm:leading-snug ${label.length > 14 || group.options.length === 1 ? 'col-span-2 sm:col-auto' : ''} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${colors.focus} ${selected ? colors.selected : colors.idle}`}>
                     <Check size={16} aria-hidden="true" className={`shrink-0 ${selected ? 'opacity-100' : 'opacity-0'}`} />
-                    <span className="min-w-0 break-words">{optionLabels[option] || option}</span>
+                    <span className="min-w-0 break-words">{label}</span>
                   </button>
                 );
               })}
