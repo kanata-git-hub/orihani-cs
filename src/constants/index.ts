@@ -14,6 +14,26 @@ export const SITUATIONS = [
   "비용/패키지 상담", "한약 복용/경과", "컴플레인/불만", "단순 안부/리콜", "원장", "리뷰 답변"
 ];
 
+// Presentation groups preserve the existing option values used by saved drafts and prompts.
+export const TREATMENT_GROUPS = [
+  { title: "시술", options: ["침", "약침", "도침", "초음파약침"] },
+  { title: "한약·증상", options: ["한약", ...SYMPTOM_TREATMENT_OPTIONS] },
+  { title: "별도 진료", options: ["교통사고", "다이어트"] }
+];
+
+export const SITUATION_GROUPS = [
+  { title: "상담·예약", options: ["신환 상담/문의", "예약 유도/확정", "예약 변경/취소", "비용/패키지 상담"] },
+  { title: "치료 후 관리", options: [HERBAL_FOLLOWUP_SITUATION, "한약 복용/경과", "치료 후 반응/통증", "단순 안부/리콜"] },
+  { title: "기타 응대", options: ["컴플레인/불만", "리뷰 답변"] },
+  { title: "작성자", options: ["원장"] }
+];
+
+export const TRAIT_GROUPS = [
+  { title: "생활·연령", options: ["운동/취미광", "직장인/가사노동", "고령/기력저하", "학생/수험생"] },
+  { title: "치료 경과", options: ["만성/유착(1개월↑)", "타병원 치료실패"] },
+  { title: "관계·성향", options: ["지인소개/단골", "건강염려/예민"] }
+];
+
 export const INITIAL_GREETING = `안녕하세요! 오리한의원 데스크 매니저님을 위한 오리 실장 AI입니다. 😊
 원장님의 훌륭한 진료 철학을 바탕으로 환자분들께 최고의 응대를 해드릴 준비가 되었습니다.
 
