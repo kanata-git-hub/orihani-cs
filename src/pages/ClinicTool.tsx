@@ -15,6 +15,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { isHerbalFollowup, herbalFollowupError } from '../herbalFollowup';
+import { resolvePatientSymptoms, selectedSymptomOptions } from '../patientSymptoms';
 
 const renderWithBoldLabels = (text: string) => {
   if (!text) return text;
@@ -43,6 +44,8 @@ export function ClinicTool() {
   
   const resultRef = useRef<HTMLDivElement>(null);
   const params = { patientName, symptoms, input, direction, selectedTreatments, selectedTraits, selectedSituations };
+  const effectiveSymptoms = resolvePatientSymptoms(params);
+  const symptomChoices = selectedSymptomOptions(selectedTreatments);
   const isFollowup = isHerbalFollowup(params);
   const followupError = herbalFollowupError(params);
   const canSubmit = isFollowup ? !followupError : Boolean(input.trim());
@@ -87,7 +90,7 @@ export function ClinicTool() {
           await addDoc(collection(db, pathForWrite), {
             userId: user.uid,
             patientName,
-            symptoms,
+            symptoms: effectiveSymptoms,
             input,
             direction,
             selectedTreatments,
@@ -182,13 +185,18 @@ export function ClinicTool() {
               </label>
               <input id="patient-symptoms" type="text" value={symptoms}
                 onChange={e => setSymptoms(e.target.value)}
-                placeholder="예: 만성 소화불량, 만성피로" autoComplete="off" maxLength={300}
-                required={isFollowup} aria-describedby="patient-fields-help"
+                placeholder={symptomChoices.length ? "추가 증상이 있으면 입력해 주세요 (선택)" : "직접 입력하거나 아래 소화불량·피로 버튼 선택"} autoComplete="off" maxLength={300}
+                required={isFollowup && symptomChoices.length === 0} aria-describedby="patient-fields-help selected-symptoms"
                 className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-base sm:text-xl" />
             </div>
           </div>
+          {symptomChoices.length > 0 && (
+            <p id="selected-symptoms" className="text-sm font-bold text-[#552c24]" role="status">
+              반영할 질환·증상: {effectiveSymptoms}
+            </p>
+          )}
           <p id="patient-fields-help" className="text-sm text-[#552c24]/70 leading-relaxed">
-            모든 응대에 함께 반영합니다. 첫 15일 안내는 두 항목을 입력하고, 다른 응대에서는 필요한 항목만 입력해 주세요.
+            모든 응대에 함께 반영합니다. 소화불량·피로는 아래 치료 종류에서 선택하면 따로 입력하지 않아도 됩니다.
           </p>
 
           <div className="space-y-4">
@@ -199,7 +207,7 @@ export function ClinicTool() {
 
           {isFollowup && (
             <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-sm leading-relaxed" role="status">
-              이름과 질환·증상으로 첫 15일 마무리 문자를 만듭니다. 교통사고·다이어트는 제외합니다.
+              환자 이름과 질환·증상 입력 또는 소화불량·피로 버튼 선택으로 문자를 만듭니다. 교통사고·다이어트는 제외합니다.
               {followupError && <p className="mt-1 font-bold">{followupError}</p>}
             </div>
           )}

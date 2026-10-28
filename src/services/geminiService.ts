@@ -2,19 +2,22 @@ import { authFetch } from '../authFetch';
 import { SYSTEM_INSTRUCTION } from "../constants";
 import { AnalyzeParams } from "../types";
 import { isHerbalFollowup, buildHerbalFollowup } from '../herbalFollowup';
+import { resolvePatientSymptoms, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
 
 export const analyzePatientMessage = async (params: AnalyzeParams): Promise<string> => {
   if (isHerbalFollowup(params)) return buildHerbalFollowup(params);
 
   const { input, direction, selectedTreatments, selectedTraits, selectedSituations } = params;
+  const symptoms = resolvePatientSymptoms(params);
+  const treatments = selectedTreatments.filter(t => !SYMPTOM_TREATMENT_OPTIONS.includes(t));
   const patientContext = [
     params.patientName?.trim() && `환자 이름: ${params.patientName.trim()}`,
-    params.symptoms?.trim() && `질환·증상: ${params.symptoms.trim()}`
+    symptoms && `질환·증상: ${symptoms}`
   ].filter(Boolean).join("\n");
 
   const prompt = `[환자 및 상황 정보]
 ${patientContext ? patientContext + "\n" : ""}메시지/상황: ${input || "정보 없음"}
-선택된 치료: ${selectedTreatments.join(", ") || "미지정"}
+선택된 치료: ${treatments.join(", ") || "미지정"}
 환자 특징: ${selectedTraits.join(", ") || "미지정"}
 응대 상황: ${selectedSituations.join(", ") || "미지정"}
 추가 요청: ${direction || "없음"}`;
