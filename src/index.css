@@ -14,3 +14,11 @@
 body {
   font-family: 'KyoboHandwriting2024psw', sans-serif;
 }
+
+/* Keep Korean words together on narrow screens without changing the font. */
+@media (width < 40rem) {
+  body {
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+}
