@@ -1,0 +1,23 @@
+name: Isolated synthetic message sample
+on:
+  push:
+    branches: ['qa/release-result-sample-20261104']
+permissions:
+  contents: read
+jobs:
+  sample:
+    if: github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Generate two synthetic messages with the release model calls
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node --experimental-strip-types .github/release-sample.mjs
