@@ -19,24 +19,33 @@ function loadModule(path, imports = {}) {
   return exported;
 }
 
-const symptoms = loadModule('src/patientSymptoms.ts');
+const rx = loadModule('src/prescriptionFields.ts');
+const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
 const followup = loadModule('src/herbalFollowup.ts', { './patientSymptoms.ts': symptoms });
-const constants = loadModule('src/constants/index.ts', { '../herbalFollowup': followup, '../patientSymptoms': symptoms });
+const constants = loadModule('src/constants/index.ts', { '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms });
+const format = loadModule('src/patientMessageText.ts');
 
-function loadService() {
+function loadService(output) {
   let submitted;
   let calls = 0;
   const service = loadModule('src/services/geminiService.ts', {
     '../patientSymptoms': symptoms,
+    '../prescriptionFields': rx,
+    '../patientMessageText': format,
     '../herbalFollowup': followup,
     '../constants': constants,
     '../authFetch': { authFetch: async (_url, options) => {
       calls++;
       submitted = JSON.parse(options.body);
-      return { ok: true, json: async () => ({ text: 'generated' }) };
+      const fields = submitted.patientContext;
+      const body = typeof output === 'object' ? output : {
+        reviewed: true, symptoms: symptoms.resolvePatientSymptoms(fields),
+        text: output ?? (followup.isHerbalFollowup(fields) ? followup.buildHerbalFollowup(fields) : 'generated')
+      };
+      return { ok: true, json: async () => body };
     } }
   });
-  return { generate: service.analyzePatientMessage, request: () => submitted, calls: () => calls };
+  return { generate: async p => (await service.analyzePatientMessage(p)).text, raw: service.analyzePatientMessage, request: () => submitted, calls: () => calls };
 }
 
 const params = { input: '예약 문의입니다.', direction: '', selectedTreatments: ['침'], selectedSituations: ['신환 상담/문의'] };
@@ -69,7 +78,9 @@ test('first 15-day situation always selects the original fixed text, even in a r
     selectedTreatments: ['한약', '도침'], selectedSituations: ['원장', followup.HERBAL_FOLLOWUP_SITUATION, '한약 복용/경과'] };
   assert.equal(await service.generate(ordinary), expected);
   assert.equal(await service.generate(extra), expected);
-  assert.equal(service.calls(), 0);
+  assert.equal(service.calls(), 2);
+  assert.equal(service.request().mode, 'fixed');
+  assert.equal(service.request().patientContext.symptoms, '피부 붉어짐, 만성 소화불량');
 });
 
 test('invalid first 15-day requests fail without falling back to AI', async () => {
@@ -127,4 +138,57 @@ test('a symptom choice alone does not invent a herbal treatment', async () => {
   await service.generate({ ...params, symptoms: '', selectedTreatments: ['피로'] });
   assert.match(service.request().prompt, /질환·증상: 피로/);
   assert.match(service.request().prompt, /선택된 치료: 미지정/);
+});
+
+test('a formula in the symptom list cannot become a symptom in fixed or generated messages', async () => {
+  const service = loadService();
+  const fields = { ...params, patientName: '가온', symptoms: '소화불량, 반하사심탕' };
+  const fixed = { ...fields, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION] };
+  assert.equal(await service.generate(fixed), followup.buildHerbalFollowup({ ...fixed, symptoms: '소화불량' }));
+  assert.equal(service.request().patientContext.symptoms, '소화불량, 반하사심탕');
+  assert.equal(service.calls(), 1);
+  await service.generate(fields);
+  assert.match(service.request().prompt, /^질환·증상: 소화불량$/m);
+  assert.match(service.request().prompt, /반하사심탕/);
+  for (const p of [fields, fixed]) {
+    await assert.rejects(service.generate({ ...p, symptoms: '반하사심탕' }), /증상/);
+    await assert.rejects(service.generate({ ...p, symptoms: '반하사심탕 복용 후 구역감' }), /증상|분리|나눠|구분/);
+  }
+  assert.equal(service.calls(), 2);
+  const withButton = { ...fixed, symptoms: '반하사심탕', selectedTreatments: ['소화불량'] };
+  assert.equal(await service.generate(withButton), followup.buildHerbalFollowup({ ...fixed, symptoms: '소화불량' }));
+});
+
+test('disclosing a formula in a generated response blocks copying, even if only the notes contained it', async () => {
+  const service = loadService('###1### 가이드 ###2### 반하사심탕 증상이 어떠신지요? ###3### 안내');
+  await assert.rejects(service.generate({ ...params, symptoms: '소화불량', input: '반하사심탕 처방 후 경과 안내' }), /처방|한약/);
+});
+
+test('valid symptom words survive unchanged and an explicitly named private formula stays private', () => {
+  for (const raw of ['위산 역류', '혈액순환 장애', '기침, 홍조', '피로, 두통', '골반질환']) {
+    assert.equal(rx.inspectSymptomField(raw).symptoms, raw);
+    assert.equal(rx.findDisclosedPrescription(raw), null);
+  }
+  const inspection = rx.inspectSymptomField('구역감, 처방명: 원내A방');
+  assert.equal(inspection.symptoms, '구역감');
+  assert.ok(inspection.prescriptions.includes('원내A방'));
+  assert.ok(rx.findDisclosedPrescription('원내A방을 복용하시면', inspection.prescriptions));
+});
+
+test('fixed and free responses without successful review cannot be used', async () => {
+  const fields = { ...params, patientName: '윤가온', symptoms: '눈 가려움' };
+  const legacy = loadService({ text: 'unreviewed' });
+  await assert.rejects(legacy.generate(fields), /검수가 완료되지/);
+  await assert.rejects(legacy.generate({ ...fields, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION] }), /검수가 완료되지/);
+});
+
+test('the reviewed symptom wins over original raw text and fixed copy must match the approved template', async () => {
+  const fields = { ...params, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION], patientName: '윤가온', symptoms: '눈 가려움, 원내비공개명' };
+  const final = followup.buildHerbalFollowup({ ...fields, symptoms: '눈 가려움' });
+  const service = loadService({ reviewed: true, text: final, symptoms: '눈 가려움' });
+  const res = await service.raw(fields);
+  assert.equal(res.text, final);
+  assert.equal(res.symptoms, '눈 가려움');
+  const contaminated = loadService({ reviewed: true, text: final + ' 추가 진료', symptoms: '눈 가려움' });
+  await assert.rejects(contaminated.generate(fields), /검수가 완료되지/);
 });

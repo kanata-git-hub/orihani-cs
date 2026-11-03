@@ -1,5 +1,5 @@
-import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
-import { HERBAL_FOLLOWUP_SITUATION } from '../herbalFollowup';
+import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms.ts';
+import { HERBAL_FOLLOWUP_SITUATION } from '../herbalFollowup.ts';
 
 export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약", ...SYMPTOM_TREATMENT_OPTIONS, "교통사고", "다이어트"];
 
@@ -40,7 +40,8 @@ const BASE_INSTRUCTION = `당신은 오리한의원의 AI 오리 실장입니다
 - 아래의 예시는 해당하는 상담이나 치료 선택지를 설명할 때만 참고하십시오. 환자가 여러 치료를 선택했더라도 이번 문의와 관계없는 내용은 생략하십시오.
 
 **[한약명 입력 시 효과 설명 및 명칭 비공개 - 항상 적용]**
-- **자동 적용:** 메시지/상황 또는 추가 요청에 한약명이나 처방명이 있으면, 별도 지시나 '한약' 태그 선택 없이도 그 처방을 참고하여 효과와 치료 목적을 설명하십시오.
+- 처방명은 치료 정보입니다. 질환·증상란에 섞였더라도 이름을 병명·증상으로 쓰거나 처방명에서 환자의 진단을 역추정하지 마십시오.
+- **자동 적용:** 처방 참고 정보, 메시지/상황 또는 추가 요청에 한약명이나 처방명이 있으면, 별도 지시나 '한약' 태그 선택 없이도 그 처방을 참고하여 효과와 치료 목적을 설명하십시오.
 - **설명 방식:** 입력한 환자의 증상과 원장님의 치료 의도에 맞는 기대 효과를 환자가 이해하기 쉬운 말로 구체적으로 설명하십시오. 단순히 "몸의 균형을 잡습니다"로 끝내지 말고 어떤 불편의 개선을 목표로 하는지 연결하십시오. 증상 정보가 없으면 확인 가능한 일반적인 치료 목적만 간결하게 설명하십시오. 효과를 보장하거나, 입력에 없는 진단·검사 결과·작용 기전·복용량을 만들어내지 마십시오.
 - **한약명 비공개:** 생성하는 모든 섹션(###1###, ###2###, ###3###)에 구체적인 한약명·처방명을 쓰지 마십시오. 입력에 있던 이름을 인용하거나 괄호, 한자명, 영문명, 약칭, 별칭, 합방명으로 다시 드러내는 것도 금지합니다. "처방한 한약", "이번 한약"처럼 자연스럽게 표현하십시오. 이름을 숨겼다는 설명도 답변에 넣지 마십시오.
 - **합방·가감·처방 변경:** 여러 처방이 입력되면 각 처방의 치료 목적을 환자의 증상과 연결해 자연스럽게 통합하되 이름은 모두 생략하십시오. 이전 처방과 새 처방을 비교할 때도 명칭 대신 치료 목표와 기대 효과의 차이로 설명하십시오.
@@ -109,8 +110,8 @@ const OUTPUT_FORMAT = `**[출력 형식]**
 
 핵심: (현장 포인트 1줄)`;
 
-export function buildSystemInstruction(treatments: string[], situations: string[], clinicalText = ''): string {
-  const instructions = [BASE_INSTRUCTION];
+export function buildClinicReference(treatments: string[], situations: string[], clinicalText = ''): string {
+  const instructions: string[] = [];
   const accident = treatments.includes('교통사고');
   const procedure = treatments.some(t => ['침', '약침', '초음파약침', '도침'].includes(t));
   const untaggedConsult = treatments.length === 0 && !situations.includes('한약 복용/경과') && !/한약|탕약|복용/.test(clinicalText);
@@ -126,7 +127,6 @@ export function buildSystemInstruction(treatments: string[], situations: string[
   if (discussesProcedure && situations.includes('신환 상담/문의')) instructions.push(PROCEDURE_GUIDANCE);
 
   if (situations.includes('원장')) {
-    instructions.push(DIRECTOR_VOICE);
     if (situations.includes('한약 복용/경과')) {
       if (treatments.includes('다이어트')) {
         instructions.push('다이어트 한약은 하루 2번, 오전 9~11시와 오후 4~6시쯤 복용하시고 냉장 보관하시도록 안내하십시오.');
@@ -135,5 +135,10 @@ export function buildSystemInstruction(treatments: string[], situations: string[
       }
     }
   }
-  return [...instructions, OUTPUT_FORMAT].join('\n\n');
+  return instructions.join('\n\n');
+}
+
+export function buildSystemInstruction(treatments: string[], situations: string[], clinicalText = ''): string {
+  return [BASE_INSTRUCTION, buildClinicReference(treatments, situations, clinicalText),
+    situations.includes('원장') ? DIRECTOR_VOICE : '', OUTPUT_FORMAT].filter(Boolean).join('\n\n');
 }

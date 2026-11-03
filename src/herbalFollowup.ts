@@ -1,5 +1,5 @@
 import type { AnalyzeParams } from './types';
-import { resolvePatientSymptoms } from './patientSymptoms.ts';
+import { inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError } from './patientSymptoms.ts';
 
 export const HERBAL_FOLLOWUP_SITUATION = '일반한약 첫 15일 마무리 안내';
 
@@ -12,7 +12,11 @@ export function herbalFollowupError(params: AnalyzeParams): string | null {
   if (params.selectedTreatments.some(t => t === '교통사고' || t === '다이어트')) {
     return '첫 15일 마무리 안내는 교통사고·다이어트를 제외한 일반한약에 사용해 주세요.';
   }
-  if (!params.patientName?.trim() || !resolvePatientSymptoms(params)) {
+  const field = inspectPatientSymptomInput(params);
+  const symptoms = resolvePatientSymptoms(params, field);
+  const inputError = symptomInputError(field, symptoms);
+  if (inputError) return inputError;
+  if (!params.patientName?.trim() || !symptoms) {
     return '환자 이름과 질환·증상을 입력해 주세요.';
   }
   return null;

@@ -94,3 +94,13 @@ test('symptom buttons do not bypass accident and diet exclusions', () => {
     assert.match(herbalFollowupError(selected)!, /제외한 일반한약/);
   }
 });
+
+test('fixed 15-day output uses the symptom and strips 온청음 with any extra options', () => {
+  const example = { ...params, patientName: '윤가온', symptoms: '눈 주위 가려움, 온청음' };
+  const expected = buildHerbalFollowup({ ...example, symptoms: '눈 주위 가려움' });
+  assert.equal(buildHerbalFollowup(example), expected);
+  assert.doesNotMatch(expected, /온청음/);
+  assert.throws(() => buildHerbalFollowup({ ...example, symptoms: '온청음', selectedTreatments: ['한약'] }), /증상/);
+  const custom = { ...example, symptoms: '눈 주위 가려움, 원내A방', input: '처방명: 원내A방' };
+  assert.equal(buildHerbalFollowup(custom), expected);
+});
