@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   MessageSquare, User as UserIcon, Brain, Send, Copy, Check, ShieldCheck, 
   RefreshCw, PlusCircle, Stethoscope
@@ -6,16 +6,16 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { TREATMENT_GROUPS, SITUATION_GROUPS, INITIAL_GREETING } from '../constants';
 import { AnalysisResult } from '../types';
-import { analyzePatientMessage } from '../services/geminiService';
+import { analyzePatientMessage, PRESCRIPTION_OUTPUT_ERROR, REVIEW_UNAVAILABLE, PatientInputError } from '../services/geminiService';
 import { TagSelector } from '../components/TagSelector';
 import { ResultCard } from '../components/ResultCard';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { isHerbalFollowup, herbalFollowupError } from '../herbalFollowup';
-import { resolvePatientSymptoms, selectedSymptomOptions } from '../patientSymptoms';
+import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
+import { INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
 
 const renderWithBoldLabels = (text: string) => {
   if (!text) return text;
@@ -37,76 +37,83 @@ export function ClinicTool() {
   const [selectedTreatments, setSelectedTreatments] = useLocalStorage<string[]>('app_treatments', []);
   const [selectedSituations, setSelectedSituations] = useLocalStorage<string[]>('app_situations', []);
   const [isLoading, setIsLoading] = useState(false);
-  const [savedResult, setResult] = useLocalStorage<(AnalysisResult & { draftKey?: string }) | null>('app_result', null);
+  const [savedResult, setResult] = useLocalStorage<(AnalysisResult & { reviewVersion: number; owner: string }) | null>('app_result', null);
+  const editVersion = useRef(0);
+  const pending = useRef(false);
+  useEffect(() => () => { editVersion.current++; }, []);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   const resultRef = useRef<HTMLDivElement>(null);
   const params = { patientName, symptoms, input, direction, selectedTreatments, selectedSituations };
-  const effectiveSymptoms = resolvePatientSymptoms(params);
+  const symptomField = inspectPatientSymptomInput(params);
+  const effectiveSymptoms = resolvePatientSymptoms(params, symptomField);
+  const symptomError = symptomInputError(symptomField, effectiveSymptoms);
   const symptomChoices = selectedSymptomOptions(selectedTreatments);
+  const showResolvedSymptoms = !symptomError && Boolean(effectiveSymptoms) &&
+    (symptomChoices.length > 0 || symptomField.prescriptions.length > 0);
   const isFollowup = isHerbalFollowup(params);
   const followupError = herbalFollowupError(params);
-  const canSubmit = isFollowup ? !followupError : Boolean(input.trim());
-  // A cached or late AI answer must never appear as the selected patient's fixed message.
-  const draftKey = JSON.stringify(isFollowup ? ['first-15', patientName.trim(), effectiveSymptoms] : ['ai', params]);
-  const result = canSubmit && savedResult?.draftKey === draftKey ? savedResult : null;
+  const canSubmit = !symptomError && (isFollowup ? !followupError : Boolean(input.trim()));
+  const formEmpty = !patientName && !symptoms && !input && !direction && !selectedTreatments.length && !selectedSituations.length;
+  const cached = user && formEmpty && savedResult?.reviewVersion === 1 && savedResult.owner === user.uid ? savedResult : null;
+  const patientText = typeof cached?.responseDraft === 'string' ? normalizePatientMessage(cached.responseDraft) : '';
+  const result = patientText.trim() ? cached : null;
 
-  const toggleTreatment = (t: string) => setSelectedTreatments(prev => prev.includes(t) ? prev.filter(i => i !== t) : [...prev, t]);
-  const toggleSituation = (s: string) => setSelectedSituations(prev => prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s]);
+  function invalidateResult() {
+    editVersion.current++;
+    setResult(null);
+    setCopied(false);
+    setError(null);
+  }
+
+  const toggleTreatment = (t: string) => {
+    invalidateResult();
+    setSelectedTreatments(prev => prev.includes(t) ? prev.filter(i => i !== t) : [...prev, t]);
+  };
+  const toggleSituation = (s: string) => {
+    invalidateResult();
+    setSelectedSituations(prev => prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s]);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLoading || !canSubmit) return;
-
+    if (pending.current || !user || !canSubmit) return;
+    pending.current = true;
+    const submittedVersion = editVersion.current;
     setIsLoading(true);
     setError(null);
     setResult(null);
 
     try {
-      const text = await analyzePatientMessage(params);
+      const reviewed = await analyzePatientMessage(params);
+      if (editVersion.current !== submittedVersion) return;
+      const newResult = parseAnalysisResult(reviewed.text);
+      clearTextFields();
+      setSelectedTreatments([]);
+      setSelectedSituations([]);
+      setResult({ ...newResult, reviewVersion: 1, owner: user.uid });
 
-      const sections = text.split(/###\d###/);
-      let newResult: AnalysisResult;
-      
-      if (sections.length >= 4) {
-        const clean = (str: string) => str.trim();
-        newResult = {
-          strategy: clean(sections[1]),
-          responseDraft: clean(sections[2]),
-          staffTip: clean(sections[3])
-        };
-      } else {
-        newResult = {
-          strategy: "분석 오류",
-          responseDraft: text,
-          staffTip: "가이드 내용을 다시 확인해 주세요."
-        };
+      try {
+        await addDoc(collection(db, 'analyses'), {
+          userId: user.uid,
+          patientName,
+          symptoms: reviewed.symptoms,
+          input,
+          direction,
+          selectedTreatments,
+          selectedSituations,
+          result: newResult,
+          createdAt: serverTimestamp()
+        });
+      } catch {
+        if (editVersion.current === submittedVersion) setError('문자는 복사할 수 있지만 생성 기록을 저장하지 못했습니다.');
       }
-      setResult({ ...newResult, draftKey });
-
-      if (user && newResult.strategy !== "분석 오류") {
-        const pathForWrite = 'analyses';
-        try {
-          await addDoc(collection(db, pathForWrite), {
-            userId: user.uid,
-            patientName,
-            symptoms: effectiveSymptoms,
-            input,
-            direction,
-            selectedTreatments,
-            selectedSituations,
-            result: newResult,
-            createdAt: serverTimestamp()
-          });
-        } catch (dbErr) {
-          handleFirestoreError(dbErr, OperationType.WRITE, pathForWrite);
-        }
-      }
-
     } catch (err: any) {
-      console.error(err);
-      if (err.message?.includes("429") || err.message?.includes("quota")) {
+      if (editVersion.current !== submittedVersion) return;
+      if (err instanceof PatientInputError || [PRESCRIPTION_OUTPUT_ERROR, INVALID_PATIENT_MESSAGE, REVIEW_UNAVAILABLE].includes(err.message)) {
+        setError(err.message);
+      } else if (err.message?.includes("429") || err.message?.includes("quota")) {
         setError("API 사용량이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
       } else if (err.message?.includes("503")) {
         setError("현재 서버 부하가 높습니다. 잠시 후 다시 시도해 주세요.");
@@ -114,22 +121,26 @@ export function ClinicTool() {
         setError("분석 중 오류가 발생했습니다. 다시 시도해 주세요.");
       }
     } finally {
+      pending.current = false;
       setIsLoading(false);
-      setTimeout(() => {
+      if (submittedVersion === editVersion.current) setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
     }
   };
 
-  const handleCopy = () => {
-    if (result) {
-      navigator.clipboard.writeText(result.responseDraft);
+  const handleCopy = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(patientText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('문자를 복사하지 못했습니다. 다시 눌러 주세요.');
     }
   };
 
-  const handleClearInputs = () => {
+  const clearTextFields = () => {
     setPatientName('');
     setSymptoms('');
     setInput('');
@@ -162,10 +173,10 @@ export function ClinicTool() {
       </AnimatePresence>
 
       <section className="max-w-5xl mx-auto space-y-6">
-        <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
+        <form onSubmit={handleSubmit} onChange={invalidateResult} className="space-y-5 sm:space-y-6">
           <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
             <span id="clear-inputs-help" className="order-2 sm:order-none text-sm text-[#552c24]/85 sm:text-[#552c24]/70">선택한 메뉴는 유지됩니다.</span>
-            <button type="button" onClick={handleClearInputs} aria-describedby="clear-inputs-help"
+            <button type="button" onClick={() => { invalidateResult(); clearTextFields(); }} aria-describedby="clear-inputs-help"
               className="min-h-12 sm:min-h-11 inline-flex items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-base font-semibold sm:font-bold text-gray-700 hover:bg-gray-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffcd4a] focus-visible:ring-offset-2">
               <RefreshCw size={16} aria-hidden="true" />
               입력 내용 전체 지우기
@@ -189,17 +200,24 @@ export function ClinicTool() {
               <input id="patient-symptoms" type="text" value={symptoms}
                 onChange={e => setSymptoms(e.target.value)}
                 placeholder={symptomChoices.length ? "추가 증상이 있으면 입력해 주세요 (선택)" : "증상 직접 입력 또는 아래 버튼 선택"} autoComplete="off" maxLength={300}
-                required={isFollowup && symptomChoices.length === 0} aria-describedby="patient-fields-help selected-symptoms"
+                required={isFollowup && symptomChoices.length === 0} aria-invalid={Boolean(symptomError)}
+                aria-describedby={`patient-fields-help${symptomError ? ' symptom-error' : ''}${showResolvedSymptoms ? ' selected-symptoms' : ''}`}
                 className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-lg sm:text-xl" />
             </div>
           </div>
-          {symptomChoices.length > 0 && (
+          {symptomError && <p id="symptom-error" className="text-base font-semibold text-red-700" role="alert">{symptomError}</p>}
+          {symptomField.prescriptions.length > 0 && !symptomError && (
+            <p className="text-base text-[#552c24]" role="status">
+              {isFollowup ? '처방명을 고정 안내 문자에서 제외했습니다.' : '처방명은 질환·증상에서 분리해 참고용으로만 사용합니다.'}
+            </p>
+          )}
+          {showResolvedSymptoms && (
             <p id="selected-symptoms" className="text-base sm:text-sm font-semibold sm:font-bold text-[#552c24] leading-7 sm:leading-5" role="status">
               반영할 질환·증상: {effectiveSymptoms}
             </p>
           )}
           <p id="patient-fields-help" className="text-base sm:text-sm text-[#552c24]/85 sm:text-[#552c24]/70 leading-7 sm:leading-relaxed">
-            모든 응대에 함께 반영합니다. 소화불량·피로는 아래 치료 종류에서 선택하면 따로 입력하지 않아도 됩니다.
+            환자가 호소한 질환·증상을 입력해 주세요. 소화불량·피로는 아래 치료 종류에서 선택할 수 있습니다.
           </p>
 
           <div className="space-y-4">
@@ -210,7 +228,7 @@ export function ClinicTool() {
           {isFollowup && (
             <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-base sm:text-sm leading-7 sm:leading-relaxed" role="status">
               첫 15일 안내에서는 고정 문구를 사용합니다. 환자 이름과 질환·증상만 반영하며 한약 버튼은 따로 누를 필요가 없습니다. 교통사고·다이어트는 제외합니다.
-              {followupError && <p className="mt-1 font-bold">{followupError}</p>}
+              {followupError && !symptomError && <p className="mt-1 font-bold">{followupError}</p>}
             </div>
           )}
 
@@ -242,7 +260,7 @@ export function ClinicTool() {
               isLoading || !canSubmit ? 'bg-[#552c24]/10 text-[#552c24]/40 cursor-not-allowed' : 'bg-[#ffcd4a] text-[#552c24] hover:bg-[#ffcd4a]/90 active:scale-[0.98] shadow-[#ffcd4a]/20'
             }`}
           >
-            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />심리 분석 및 답변 생성 중...</>) : (<><Send size={20} />{isFollowup ? "안내 문자 만들기" : "분석 시작하기"}</>)}
+            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />문안 생성 및 검수 중...</>) : (<><Send size={20} />{isFollowup ? "안내 문자 만들기" : "분석 시작하기"}</>)}
           </button>
         </form>
       </section>
@@ -257,7 +275,7 @@ export function ClinicTool() {
         {result && (
           <motion.div ref={resultRef} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="mt-8 sm:mt-12 grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 pb-12 items-start scroll-mt-24">
             <ResultCard className="order-2 lg:order-1" icon={Brain} title="🧠 환자 심리 & 원장님 가이드" content={renderWithBoldLabels(result.strategy)} />
-            <ResultCard className="order-1 lg:order-2" icon={MessageSquare} title="✍️ 환자 답변 초안" content={result.responseDraft} isHighlighted={true} actionButton={
+            <ResultCard className="order-1 lg:order-2" icon={MessageSquare} title="✍️ 검수 완료 문자" content={patientText} isHighlighted={true} actionButton={
                 <button onClick={handleCopy} aria-label={copied ? "복사 완료" : "문자 복사"} className="shrink-0 flex items-center gap-1.5 min-h-12 sm:min-h-11 px-3 py-2 text-base sm:text-sm whitespace-nowrap bg-[#ffcd4a] text-[#552c24] rounded-full hover:bg-[#ffcd4a]/80 transition-all shadow-md active:scale-95">
                   {copied ? <Check size={18} /> : <Copy size={18} />}
                   <span>{copied ? "복사 완료" : "문자 복사"}</span>

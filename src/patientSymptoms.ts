@@ -1,3 +1,4 @@
+import { getReferencedPrescriptions, inspectSymptomField } from './prescriptionFields.ts';
 import type { AnalyzeParams } from './types';
 
 export const SYMPTOM_TREATMENT_OPTIONS = ['소화불량', '피로'];
@@ -6,8 +7,14 @@ export function selectedSymptomOptions(selectedTreatments: string[]): string[] {
   return SYMPTOM_TREATMENT_OPTIONS.filter(option => selectedTreatments.includes(option));
 }
 
-export function resolvePatientSymptoms(params: Pick<AnalyzeParams, 'symptoms' | 'selectedTreatments'>): string {
-  const manual = params.symptoms?.trim() || '';
+type SymptomInput = Pick<AnalyzeParams, 'symptoms' | 'selectedTreatments'> & Partial<Pick<AnalyzeParams, 'input' | 'direction'>>;
+export function inspectPatientSymptomInput(params: SymptomInput) {
+  const names = getReferencedPrescriptions(params.input || '', params.direction || '');
+  return inspectSymptomField(params.symptoms || '', names);
+}
+
+export function resolvePatientSymptoms(params: SymptomInput, inspection = inspectPatientSymptomInput(params)): string {
+  const manual = inspection.symptoms;
   const selected = selectedSymptomOptions(params.selectedTreatments);
   if (selected.length === 0) return manual;
 
@@ -19,4 +26,12 @@ export function resolvePatientSymptoms(params: Pick<AnalyzeParams, 'symptoms' | 
     seen.add(key);
     return true;
   }).join(', ');
+}
+
+export function symptomInputError(inspection: ReturnType<typeof inspectSymptomField>, effectiveSymptoms: string): string | null {
+  if (inspection.error) return inspection.error;
+  if (inspection.prescriptions.length && !effectiveSymptoms) {
+    return '질환·증상에는 환자가 실제로 겪는 증상을 입력하거나 아래에서 선택해 주세요.';
+  }
+  return null;
 }

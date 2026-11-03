@@ -12,7 +12,7 @@
     "lint": "tsc --noEmit",
     "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/storage-security.test.ts tests/auth-fetch.test.cjs tests/analysis-api.test.ts",
     "test:rules": "node --test tests/firestore-security.cjs",
-    "test:patient": "node --experimental-strip-types --test tests/herbal-followup.test.ts tests/patient-fields.test.cjs"
+    "test:patient": "node --experimental-strip-types --test tests/herbal-followup.test.ts tests/patient-fields.test.cjs tests/patient-message-text.test.ts tests/review-patient-message.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
