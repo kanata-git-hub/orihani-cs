@@ -10,7 +10,7 @@ interface TagSelectorProps {
   icon: LucideIcon;
   title: string;
   groups: TagGroup[];
-  tone: 'teal' | 'amber' | 'violet';
+  tone: 'teal' | 'amber';
   optionLabels?: Record<string, string>;
   selectedOptions: string[];
   onToggle: (option: string) => void;
@@ -34,15 +34,6 @@ const tones = {
     selected: 'bg-amber-300 text-amber-950 border-amber-400',
     idle: 'bg-white text-amber-950 border-amber-200 hover:border-amber-500 hover:bg-amber-50',
     focus: 'focus-visible:ring-amber-600'
-  },
-  violet: {
-    panel: 'border-violet-200 bg-violet-50/50',
-    heading: 'text-violet-950',
-    icon: 'bg-violet-100 text-violet-800',
-    divider: 'border-violet-200/70',
-    selected: 'bg-violet-700 text-white border-violet-700',
-    idle: 'bg-white text-violet-950 border-violet-200 hover:border-violet-500 hover:bg-violet-50',
-    focus: 'focus-visible:ring-violet-600'
   }
 };
 
