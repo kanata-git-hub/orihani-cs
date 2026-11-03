@@ -1,6 +1,5 @@
 import { analysisEndpoint } from './analysisApi.ts';
 import express from 'express';
-import { mountReleaseSample } from './releaseSample.ts';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -44,15 +43,13 @@ async function startServer() {
     }
   }
 
-  const generate = async (systemInstruction: string, prompt: string) => {
+  app.use('/api/generate-analysis', analysisEndpoint(async (systemInstruction, prompt) => {
     try {
       return await generateWithRetry('gemini-3.6-flash', systemInstruction, prompt);
     } catch {
       return await generateWithRetry('gemini-3.1-pro-preview', systemInstruction, prompt);
     }
-  };
-  app.use('/api/generate-analysis', analysisEndpoint(generate));
-  mountReleaseSample(app, generate);
+  }));
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
