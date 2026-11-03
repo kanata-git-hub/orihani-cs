@@ -1,5 +1,4 @@
 import { analysisEndpoint } from './analysisApi.ts';
-import { mountArgonTrial } from './argonTrialRoute.ts';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -17,7 +16,6 @@ async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(cors());
-  mountArgonTrial(app);
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
