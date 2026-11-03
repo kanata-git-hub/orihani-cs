@@ -10,6 +10,5 @@ export interface AnalyzeParams {
   input: string;
   direction: string;
   selectedTreatments: string[];
-  selectedTraits: string[];
   selectedSituations: string[];
 }

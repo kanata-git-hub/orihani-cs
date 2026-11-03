@@ -4,7 +4,7 @@ import {
   RefreshCw, PlusCircle, Stethoscope
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TREATMENT_GROUPS, TRAIT_GROUPS, SITUATION_GROUPS, INITIAL_GREETING } from '../constants';
+import { TREATMENT_GROUPS, SITUATION_GROUPS, INITIAL_GREETING } from '../constants';
 import { AnalysisResult } from '../types';
 import { analyzePatientMessage } from '../services/geminiService';
 import { TagSelector } from '../components/TagSelector';
@@ -35,23 +35,24 @@ export function ClinicTool() {
   const [input, setInput] = useLocalStorage<string>('app_input', "");
   const [direction, setDirection] = useLocalStorage<string>('app_direction', "");
   const [selectedTreatments, setSelectedTreatments] = useLocalStorage<string[]>('app_treatments', []);
-  const [selectedTraits, setSelectedTraits] = useLocalStorage<string[]>('app_traits', []);
   const [selectedSituations, setSelectedSituations] = useLocalStorage<string[]>('app_situations', []);
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useLocalStorage<AnalysisResult | null>('app_result', null);
+  const [savedResult, setResult] = useLocalStorage<(AnalysisResult & { draftKey?: string }) | null>('app_result', null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   const resultRef = useRef<HTMLDivElement>(null);
-  const params = { patientName, symptoms, input, direction, selectedTreatments, selectedTraits, selectedSituations };
+  const params = { patientName, symptoms, input, direction, selectedTreatments, selectedSituations };
   const effectiveSymptoms = resolvePatientSymptoms(params);
   const symptomChoices = selectedSymptomOptions(selectedTreatments);
   const isFollowup = isHerbalFollowup(params);
   const followupError = herbalFollowupError(params);
   const canSubmit = isFollowup ? !followupError : Boolean(input.trim());
+  // A cached or late AI answer must never appear as the selected patient's fixed message.
+  const draftKey = JSON.stringify(isFollowup ? ['first-15', patientName.trim(), effectiveSymptoms] : ['ai', params]);
+  const result = canSubmit && savedResult?.draftKey === draftKey ? savedResult : null;
 
   const toggleTreatment = (t: string) => setSelectedTreatments(prev => prev.includes(t) ? prev.filter(i => i !== t) : [...prev, t]);
-  const toggleTrait = (t: string) => setSelectedTraits(prev => prev.includes(t) ? prev.filter(i => i !== t) : [...prev, t]);
   const toggleSituation = (s: string) => setSelectedSituations(prev => prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -82,7 +83,7 @@ export function ClinicTool() {
           staffTip: "가이드 내용을 다시 확인해 주세요."
         };
       }
-      setResult(newResult);
+      setResult({ ...newResult, draftKey });
 
       if (user && newResult.strategy !== "분석 오류") {
         const pathForWrite = 'analyses';
@@ -94,7 +95,6 @@ export function ClinicTool() {
             input,
             direction,
             selectedTreatments,
-            selectedTraits,
             selectedSituations,
             result: newResult,
             createdAt: serverTimestamp()
@@ -205,12 +205,11 @@ export function ClinicTool() {
           <div className="space-y-4">
             <TagSelector icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />
             <TagSelector icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ 원장: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
-            <TagSelector icon={UserIcon} title="환자 특징" groups={TRAIT_GROUPS} tone="violet" selectedOptions={selectedTraits} onToggle={toggleTrait} />
           </div>
 
           {isFollowup && (
             <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-base sm:text-sm leading-7 sm:leading-relaxed" role="status">
-              환자 이름과 질환·증상 입력 또는 소화불량·피로 버튼 선택으로 문자를 만듭니다. 교통사고·다이어트는 제외합니다.
+              첫 15일 안내에서는 고정 문구를 사용합니다. 환자 이름과 질환·증상만 반영하며 한약 버튼은 따로 누를 필요가 없습니다. 교통사고·다이어트는 제외합니다.
               {followupError && <p className="mt-1 font-bold">{followupError}</p>}
             </div>
           )}
@@ -233,7 +232,7 @@ export function ClinicTool() {
             </label>
             <input
               id="response-direction" type="text" value={direction} onChange={(e) => setDirection(e.target.value)}
-              placeholder="예: 방문 유도, 부드러운 거절, 비용 안내 등"
+              placeholder={isFollowup ? "고정 안내 문자에는 반영되지 않습니다." : "예: 방문 유도, 부드러운 거절, 비용 안내 등"}
               className="w-full p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all shadow-sm text-lg sm:text-xl font-medium"
             />
           </div>

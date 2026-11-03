@@ -6,7 +6,7 @@ import type { AnalyzeParams } from '../src/types/index.ts';
 
 const params: AnalyzeParams = {
   patientName: '김○○', symptoms: '만성 소화불량', input: '', direction: '',
-  selectedTreatments: ['한약'], selectedTraits: [], selectedSituations: [HERBAL_FOLLOWUP_SITUATION]
+  selectedTreatments: ['한약'], selectedSituations: [HERBAL_FOLLOWUP_SITUATION]
 };
 
 test('first contact matches the supplied five-paragraph template exactly', () => {
@@ -38,9 +38,9 @@ test('general herbal conditions are not restricted to fatigue and indigestion', 
   }
 });
 
-test('the fixed template cannot drift with additional traits or directions', () => {
+test('the fixed template cannot drift with additional situations or directions', () => {
   assert.equal(
-    buildHerbalFollowup({ ...params, direction: '아주 짧게', input: '임의의 상황 메모', selectedTraits: ['만성/유착(1개월↑)'], selectedSituations: [HERBAL_FOLLOWUP_SITUATION, '원장'] }),
+    buildHerbalFollowup({ ...params, direction: '아주 짧게', input: '임의의 상황 메모', selectedSituations: [HERBAL_FOLLOWUP_SITUATION, '원장'] }),
     buildHerbalFollowup(params)
   );
 });
