@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/storage-security.test.ts tests/auth-fetch.test.cjs",
+    "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/storage-security.test.ts tests/auth-fetch.test.cjs tests/analysis-api.test.ts",
     "test:rules": "node --test tests/firestore-security.cjs",
     "test:patient": "node --experimental-strip-types --test tests/herbal-followup.test.ts tests/patient-fields.test.cjs"
   },
@@ -30,7 +30,6 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
-    "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
@@ -42,9 +41,10 @@
     "@firebase/rules-unit-testing": "^5.0.0"
   },
   "overrides": {
-    "qs": "^6.16.0",
+    "qs": "^6.17.1",
     "tsx": {
       "esbuild": "^0.28.1"
-    }
+    },
+    "@grpc/grpc-js": "1.14.7"
   }
 }

@@ -14,6 +14,9 @@ for(const repo of repos)test(repo+' rules preserve authorized access and reject 
   await assertSucceeds(admin.collection(collection).doc('legacy-auto-id').set({email:'alice@example.test',role:'user'}));
   if(repo!=='orihani-shorts') {
    await assertSucceeds(alice.collection(collection).where('email','==','alice@example.test').get());
+   const unverifiedAlice=ctx('unverified-alice','alice@example.test',false);
+   await assertFails(unverifiedAlice.collection(collection).doc('legacy-auto-id').get());
+   await assertFails(unverifiedAlice.collection(collection).where('email','==','alice@example.test').get());
    await assertFails(bob.collection(collection).get());
   }
   if(repo==='orihani-marketing') {

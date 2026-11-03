@@ -18,6 +18,16 @@ jobs:
       - run: npm run lint
       - run: npm run test:security
       - run: npm run test:patient
+      - name: Exercise Firestore access rules against the emulator
+        run: |
+          jar="$RUNNER_TEMP/firestore.jar"
+          curl --fail --silent --show-error --location https://storage.googleapis.com/firebase-preview-drop/emulator/cloud-firestore-emulator-v1.22.0.jar -o "$jar"
+          echo "9b6498b7f62714d67f48f59b3818883cd682dbcd46b9f59511de81c97bb5166c  $jar" | sha256sum --check
+          "$JAVA_HOME_21_X64/bin/java" -jar "$jar" --host 127.0.0.1 --port 8085 >"$RUNNER_TEMP/firestore.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          timeout 60 bash -c 'until nc -z 127.0.0.1 8085; do sleep 1; done'
+          npm run test:rules
       - run: npm run build
         env:
           GEMINI_API_KEY: SECURITY_BUILD_SENTINEL_MUST_NOT_SHIP
