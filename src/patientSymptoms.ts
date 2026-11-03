@@ -7,6 +7,17 @@ export function selectedSymptomOptions(selectedTreatments: string[]): string[] {
   return SYMPTOM_TREATMENT_OPTIONS.filter(option => selectedTreatments.includes(option));
 }
 
+// Both ends compare the same normalized list after confirmed prescription names are removed.
+export function fixedSymptomTerms(symptoms: string): string[] {
+  return [...new Set(symptoms.split(/[,，、/·;；\n+＋]+/u).map(s => s.trim()).filter(Boolean))];
+}
+
+export function retainsAllFixedSymptoms(symptoms: string, reviewed: string[]): boolean {
+  const expected = fixedSymptomTerms(symptoms);
+  return expected.length > 0 && expected.length === reviewed.length &&
+    expected.every((term, index) => term === reviewed[index]);
+}
+
 type SymptomInput = Pick<AnalyzeParams, 'symptoms' | 'selectedTreatments'> & Partial<Pick<AnalyzeParams, 'input' | 'direction'>>;
 export function inspectPatientSymptomInput(params: SymptomInput) {
   const names = getReferencedPrescriptions(params.input || '', params.direction || '');

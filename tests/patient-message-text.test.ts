@@ -32,3 +32,16 @@ test('malformed sections cannot send staff-only text to the patient clipboard', 
     assert.throws(() => parseAnalysisResult(s), { message: INVALID_PATIENT_MESSAGE });
   }
 });
+
+test('simplifies a doubled question honorific in the patient copy without changing other wording', () => {
+  const question = '혹시 피부의 붉은 기운은 주로 언제 더 심해지는지 ';
+  const wanted = question + '알려주실 수 있을까요?';
+  for (const phrase of ['말씀해 주실 수 있으실까요?', '말씀해주실수 있으실까요?', '알려 주실 수 있으실까요?']) {
+    const patient = question + phrase;
+    const result = parseAnalysisResult('###1###가이드###2###' + patient + '###3###팁');
+    assert.equal(result.responseDraft, wanted);
+    assert.equal(normalizePatientMessage(result.responseDraft), wanted);
+  }
+  const normal = '김별하님, 궁금한 점이 있으실까요? 직접 말씀해 주실 수 있을까요?';
+  assert.equal(normalizePatientMessage(normal), normal);
+});

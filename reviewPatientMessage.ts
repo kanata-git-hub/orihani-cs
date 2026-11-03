@@ -1,3 +1,5 @@
+import { fixedSymptomTerms } from './src/patientSymptoms.ts';
+import type { AnalysisResult } from './src/types/index.ts';
 import { normalizePatientMessage } from './src/patientMessageText.ts';
 import { findDisclosedPrescription, getReferencedPrescriptions, inspectSymptomField } from './src/prescriptionFields.ts';
 
@@ -12,16 +14,23 @@ const shared = `오리한의원에서 직원이 바로 복사해 보낼 환자 �
 clinicReference가 있으면 한의원이 승인한 일반 지침이다. 해당 상황에 맞는 복용·비용·치료 안내와 원장 또는 데스크의 화자 기준을 보존한다. 일반 지침은 이 환자에게 특정 진단·처방·시술·예약이 이미 확정·준비됐다는 근거가 아니다.
 prescriptionReferences는 따로 분리해 둔 내부 참고용 처방명 목록이다. 어느 칸에 있든 처방명은 내부 치료 정보다. 처방명·별칭·합방명을 환자에게 드러내거나 병명으로 부르거나 처방 이름에서 진단을 추측하지 않는다. 단순한 치료 선택을 개인의 진단이나 실제 시술 사실로 확대하지 않는다.`;
 const free = shared + `
-1. 원자료에서 환자, 실제 수신자, 확인된 증상과 경과, 치료, 결정된 안내와 응대 목적을 먼저 구분한다.
+1. 환자용 문자(responseDraft), 직원이 읽는 상담 요지와 가이드(strategy), 직원 대처 팁(staffTip)을 한 세트로 검수한다. 원자료에서 환자, 실제 수신자, 확인된 증상과 경과, 치료, 결정된 안내와 응대 목적을 먼저 구분한다. '속마음'은 환자가 표현한 요청이나 확인할 내용만 담고 감정·동기를 지어내지 않는다.
 2. 첫인사부터 연락을 청하는 마지막 문장까지, 한 문장에 들어 있는 여러 주장을 따로 대조한다. 환자가 말하지 않은 소견·경과·기전과 직원 또는 원장이 준비·시행·확정했다는 근거 없는 행동을 삭제한다. 실제 확인된 사실을 약하게 바꾸지 않는다.
 3. 질문, 조건문, 현재 경과를 묻는 말은 질문 그대로 읽는다. 원장님이 승인한 치료 효과 설명과 권유의 의도·강도를 보존한다. 입력에 없는 개별 증상을 새로 끼워 넣거나 학술적 단서·면책·추가 문진을 덧붙이지 않는다.
 4. 보호자와 환자, 실제로 한약을 복용하거나 시술을 받은 사람이 맞는지 살핀다. 같은 자녀가 분명하면 '별하님'과 '김별하님' 모두 허용하고, 성의 유무만으로 고치지 않는다. 다른 사람의 이름 또는 대상을 바로잡되 공손한 호칭을 지킨다.
-5. 잘못된 부분만 고친 뒤 수정문에도 새 사실, 무관한 설명, 내부 메모가 남지 않았는지 확인한다. 바로 보낼 수 있으면 status=keep, final은 빈 문자열. 고쳐야 하면 status=revise, final에는 환자에게 보낼 문자 전체만 넣는다. 문단 사이는 실제 빈 줄로 표시한다.`;
+5. 세 섹션의 수신자·증상·치료·예약·처방 상태와 다음 행동이 원자료와 일치하는지 서로 대조한다. 환자 문자가 맞더라도 직원에게 잘못된 확정 안내를 하라고 지시하면 직원 문구를 고친다. 환자 문자를 고친 뒤에도 직원 지침에 같은 오류가 남아 있지 않아야 한다. 내부용 처방명은 세 섹션 모두에서 제외하고, 직원 안내 문구를 환자 문자로 옮기지 않는다. '말씀해 주실 수 있으실까요?'처럼 겹친 높임은 '알려주실 수 있을까요?'처럼 자연스럽게 고친다.
+6. 세 섹션이 모두 그대로 사용 가능하면 status=keep, strategy·responseDraft·staffTip은 모두 빈 문자열이다. 하나라도 고치면 status=revise이고 세 필드 모두 최종 원문 전체를 반환한다. 바꿀 필요 없는 섹션·문장은 그대로 유지한다. strategy의 '속마음:', '가이드:'와 staffTip의 '거절 시:', '핵심:' 역할과 문단 구분을 유지하되 ### 구분자는 쓰지 않는다. 문단 사이는 실제 빈 줄로 표시한다.`;
+
+export class FixedSymptomInputError extends Error {
+  readonly status = 422;
+  constructor() {
+    super('질환·증상의 일부를 확인하지 못했습니다. 실제 증상만 남기고 처방명은 메시지/상황에 따로 적어 주세요.');
+  }
+}
 
 const fixed = shared + `
 첫 15일 안내의 본문은 원장 승인 고정문구이며 네가 다시 작성하지 않는다. 할 일은 그 안에 넣을 환자 개인의 실제 질환·증상만 식별하는 것이다.
-terms는 질환·증상 칸에서 가져온 순서 있는 입력 항목이다. 메모와 응대 상황에 비추어, 이번 환자의 질환·증상인 것이 분명하고 양상·부위·기간·부정 여부가 왜곡되지 않는 항목만 선택한다. 증상처럼 적힌 한약·원내 처방·약칭, 치료·시술명, 빈칸 표시, 메모나 지시, 타인의 상태, 실제 증상인지 불확실한 항목은 제외한다. 익숙하지 않은 원내 코드나 모르는 낱말은 질환·증상 칸에 쓰여 있다는 이유만으로 선택하지 않는다. 담당자가 분명하게 확인한 증상 또는 질환만 선택하고, 처방명에서 질환을 추정하거나 표현을 지어내지 않는다.
-selected에 선택한 항목의 번호(0부터)를 원래 순서대로 한 번씩 넣는다. 하나도 없으면 빈 배열이다. 고정문구 자체를 교정하거나 반환하지 않는다.`;
+terms의 각 항목에 대해 배열 전체를 빠짐없이 입력 순서대로 판정한다. index는 0부터 시작하는 원래 번호이다. 이번 환자의 질환·증상만 symptom, 처방명은 prescription, 판단이 불분명하거나 타인·지시·단순 메모이거나 부정 여부·부위·기간이 왜곡될 항목은 uncertain이다. 모르는 항목을 추측하거나 생략하지 마라. 두 증상이 모두 확인되면 그중 하나만 골라서는 안 된다. 고정문구나 입력 항목을 새로 쓰지 마라.`;
 
 function unavailable() {
   return Object.assign(new Error('환자 문안 검수를 완료하지 못했습니다. 다시 생성해 주세요.'), { status: 503 });
@@ -56,36 +65,57 @@ async function requestVerdict(instruction: string, data: object, schema: object)
   } catch { throw unavailable(); }
 }
 
-export async function reviewFree(input: ReviewInput, draft: string): Promise<string> {
+export async function reviewFree(input: ReviewInput, draft: AnalysisResult): Promise<AnalysisResult> {
+  const fields = ['strategy', 'responseDraft', 'staffTip'] as const;
   const verdict = await requestVerdict(free, { context: input, draft }, {
-    type: 'OBJECT', properties: { status: { type: 'STRING', enum: ['keep', 'revise'] }, final: { type: 'STRING' } },
-    required: ['status', 'final'],
+    type: 'OBJECT', properties: {
+      status: { type: 'STRING', enum: ['keep', 'revise'] },
+      strategy: { type: 'STRING' }, responseDraft: { type: 'STRING' }, staffTip: { type: 'STRING' },
+    },
+    required: ['status', ...fields],
   });
-  if (typeof verdict.final !== 'string' || (verdict.status !== 'keep' && verdict.status !== 'revise')) throw unavailable();
-  if (verdict.status === 'keep' && verdict.final !== '' && verdict.final !== draft) throw unavailable();
-  const text = normalizePatientMessage(verdict.status === 'keep' ? draft : verdict.final).trim();
-  if (!text || /###\d+###|```/.test(text) || (verdict.status === 'revise' && text === normalizePatientMessage(draft).trim()) ||
-      findDisclosedPrescription(text, [...(input.prescriptionReferences ?? []), ...getReferencedPrescriptions(input.symptoms, input.input, input.direction)])) throw unavailable();
-  return text;
+  if (verdict.status !== 'keep' && verdict.status !== 'revise') throw unavailable();
+  const names = [...(input.prescriptionReferences ?? []), ...getReferencedPrescriptions(input.symptoms, input.input, input.direction)];
+  const result: AnalysisResult = { strategy: '', responseDraft: '', staffTip: '' };
+  let changed = false;
+  for (const field of fields) {
+    const returned = verdict[field];
+    if (typeof returned !== 'string') throw unavailable();
+    const original = normalizePatientMessage(draft[field]).trim();
+    if (verdict.status === 'keep' && returned && normalizePatientMessage(returned).trim() !== original) throw unavailable();
+    const text = verdict.status === 'keep' ? original : normalizePatientMessage(returned).trim();
+    if (!text || /###\d+###|```/.test(text) || findDisclosedPrescription(text, names)) throw unavailable();
+    result[field] = text;
+    if (text !== original) changed = true;
+  }
+  if ((verdict.status === 'revise' && !changed) ||
+      /(?:^|\n)\s*(속마음|가이드|거절 시|핵심)\s*[:：]/.test(result.responseDraft)) throw unavailable();
+  return result;
 }
 
 export async function reviewFixedSymptoms(input: ReviewInput, draft: string): Promise<string[]> {
   const names = [...(input.prescriptionReferences ?? []), ...getReferencedPrescriptions(input.input, input.direction)];
-  const terms = [...new Set(input.symptoms.split(/[,，、/·;；\n+＋]+/u).map(s => s.trim()).filter(Boolean))];
-  if (terms.length > 80) throw unavailable();
+  const terms = fixedSymptomTerms(input.symptoms);
+  if (terms.length > 80) throw new FixedSymptomInputError();
   const verdict = await requestVerdict(fixed, { context: input, terms, draft }, {
-    type: 'OBJECT', properties: { selected: { type: 'ARRAY', items: { type: 'INTEGER' } } }, required: ['selected'],
+    type: 'OBJECT', properties: { items: { type: 'ARRAY', items: {
+      type: 'OBJECT', properties: {
+        index: { type: 'INTEGER' },
+        kind: { type: 'STRING', enum: ['symptom', 'prescription', 'uncertain'] },
+      }, required: ['index', 'kind'],
+    } } }, required: ['items'],
   });
-  if (!Array.isArray(verdict.selected) || verdict.selected.length > terms.length) throw unavailable();
+  if (!Array.isArray(verdict.items) || verdict.items.length !== terms.length) throw unavailable();
   const selected: string[] = [];
-  let last = -1;
-  for (const i of verdict.selected) {
-    if (!Number.isSafeInteger(i) || i <= last || i >= terms.length) throw unavailable();
-    last = i;
-    const term = terms[i];
+  for (const [index, term] of terms.entries()) {
+    const item = verdict.items[index];
+    if (!item || item.index !== index || !['symptom', 'prescription', 'uncertain'].includes(item.kind)) throw unavailable();
     const check = inspectSymptomField(term, names);
-    if (term.length > 160 || /[\x00-\x1f\\#`]/.test(term) || check.error || check.prescriptions.length ||
-        /^(?:없음|모름|미정|미입력|미지정|정보 없음|증상|질환|처방명|한약|탕약|약)$/u.test(term)) throw unavailable();
+    // Only the local classifier or a named prescription in the source may justify removing a term.
+    if (item.kind === 'prescription' && check.prescriptions.length && !check.symptoms && !check.error) continue;
+    if (item.kind !== 'symptom' || check.error || check.prescriptions.length || term.length > 160 ||
+        /[\x00-\x1f\\#`]/.test(term) ||
+        /^(?:없음|모름|미정|미입력|미지정|정보 없음|증상|질환|처방명|한약|탕약|약)$/u.test(term)) throw new FixedSymptomInputError();
     selected.push(term);
   }
   return selected;

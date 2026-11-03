@@ -13,9 +13,9 @@ test('first contact matches the supplied five-paragraph template exactly', () =>
   const message = buildHerbalFollowup(params).split(/###\d###/)[2].trim();
   assert.equal(message, `김○○님, 안녕하세요. 오리한의원입니다.
 
-지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 한약을 복용하시면서 소화가 한결 편해지셨을 것 같은데, 아직 불편한 증상이 남아 있지는 않으신지 궁금하여 연락드립니다.
+지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?
 
-만성 소화불량은 증상이 호전되기까지 꾸준한 치료가 중요하며, 충분한 개선과 안정적인 상태 유지를 위해서는 보통 2~3개월 정도 치료를 이어가며 경과를 살펴보는 것이 좋습니다.
+만성 소화불량 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 정도 치료를 이어가며 증상이 좋아지고 안정적으로 유지되는지 살펴보는 것이 좋습니다.
 
 현재 드시던 한약이 마무리되는 시기가 다가오고 있습니다. 내원해 주시면 그동안의 변화와 남아 있는 증상을 확인하고, 앞으로의 한약 치료에 대해서도 안내해 드리겠습니다.
 
@@ -25,7 +25,7 @@ test('first contact matches the supplied five-paragraph template exactly', () =>
 test('name and symptoms are enough without a patient response or situation', () => {
   assert.equal(herbalFollowupError(params), null);
   assert.match(buildHerbalFollowup({ ...params, patientName: ' 이○○님 ', symptoms: '만성피로' }), /이○○님, 안녕하세요/);
-  assert.match(buildHerbalFollowup({ ...params, symptoms: '만성피로' }), /만성피로는 증상이/);
+  assert.match(buildHerbalFollowup({ ...params, symptoms: '만성피로' }), /만성피로 완화에는/);
   assert.doesNotMatch(buildHerbalFollowup({ ...params, patientName: '이○○님' }), /님님/);
 });
 
@@ -70,7 +70,7 @@ test('each symptom button is identical to typing that symptom for the first cont
 test('both symptom buttons and manual additional symptoms are included once', () => {
   const selected = { ...params, symptoms: '피로, 두통', selectedTreatments: ['소화불량', '피로'] };
   assert.equal(resolvePatientSymptoms(selected), '피로, 두통, 소화불량');
-  assert.match(buildHerbalFollowup(selected), /피로, 두통, 소화불량은/);
+  assert.match(buildHerbalFollowup(selected), /피로, 두통, 소화불량 완화에는/);
   assert.equal(resolvePatientSymptoms({ ...params, symptoms: '', selectedTreatments: ['소화불량', '피로'] }), '소화불량, 피로');
 });
 
@@ -99,7 +99,8 @@ test('fixed 15-day output uses the symptom and strips 온청음 with any extra o
   const example = { ...params, patientName: '윤가온', symptoms: '눈 주위 가려움, 온청음' };
   const expected = buildHerbalFollowup({ ...example, symptoms: '눈 주위 가려움' });
   assert.equal(buildHerbalFollowup(example), expected);
-  assert.doesNotMatch(expected, /온청음/);
+  assert.doesNotMatch(expected, /온청음|나아지셨을 것|눈 주위 가려움은 증상이/);
+  assert.match(expected, /눈 주위 가려움 완화에는/);
   assert.throws(() => buildHerbalFollowup({ ...example, symptoms: '온청음', selectedTreatments: ['한약'] }), /증상/);
   const custom = { ...example, symptoms: '눈 주위 가려움, 원내A방', input: '처방명: 원내A방' };
   assert.equal(buildHerbalFollowup(custom), expected);

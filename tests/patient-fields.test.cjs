@@ -39,7 +39,7 @@ function loadService(output) {
       submitted = JSON.parse(options.body);
       const fields = submitted.patientContext;
       const body = typeof output === 'object' ? output : {
-        reviewed: true, symptoms: symptoms.resolvePatientSymptoms(fields),
+        reviewed: true, reviewVersion: 2, symptoms: symptoms.resolvePatientSymptoms(fields),
         text: output ?? (followup.isHerbalFollowup(fields) ? followup.buildHerbalFollowup(fields) : 'generated')
       };
       return { ok: true, json: async () => body };
@@ -182,13 +182,20 @@ test('fixed and free responses without successful review cannot be used', async 
   await assert.rejects(legacy.generate({ ...fields, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION] }), /검수가 완료되지/);
 });
 
-test('the reviewed symptom wins over original raw text and fixed copy must match the approved template', async () => {
-  const fields = { ...params, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION], patientName: '윤가온', symptoms: '눈 가려움, 원내비공개명' };
+test('only positively identified prescriptions may be removed and fixed copy must match the approved template', async () => {
+  const fields = { ...params, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION], patientName: '윤가온', symptoms: '눈 가려움, 원내비공개명', input: '처방명: 원내비공개명' };
   const final = followup.buildHerbalFollowup({ ...fields, symptoms: '눈 가려움' });
-  const service = loadService({ reviewed: true, text: final, symptoms: '눈 가려움' });
+  const service = loadService({ reviewed: true, reviewVersion: 2, text: final, symptoms: '눈 가려움' });
   const res = await service.raw(fields);
   assert.equal(res.text, final);
   assert.equal(res.symptoms, '눈 가려움');
-  const contaminated = loadService({ reviewed: true, text: final + ' 추가 진료', symptoms: '눈 가려움' });
+  const contaminated = loadService({ reviewed: true, reviewVersion: 2, text: final + ' 추가 진료', symptoms: '눈 가려움' });
   await assert.rejects(contaminated.generate(fields), /검수가 완료되지/);
+});
+
+test('an earlier release or a partial symptom list cannot supply a copyable response', async () => {
+  const fields = { ...params, patientName: '윤가온', symptoms: '피부 붉어짐, 소화불량', selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION] };
+  const partial = followup.buildHerbalFollowup({ ...fields, symptoms: '피부 붉어짐' });
+  await assert.rejects(loadService({ reviewed:true, reviewVersion:2, symptoms:'피부 붉어짐',text:partial }).generate(fields), /검수가 완료되지/);
+  await assert.rejects(loadService({ reviewed:true, text:partial }).generate({ ...params, selectedSituations:['한약 복용/경과'] }), /검수가 완료되지/);
 });

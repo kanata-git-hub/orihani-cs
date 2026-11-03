@@ -1,11 +1,11 @@
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { buildClinicReference, buildSystemInstruction } from './src/constants/index.ts';
 import { buildHerbalFollowup, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
-import { INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
-import { inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
+import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
+import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
 import { findDisclosedPrescription, getReferencedPrescriptions } from './src/prescriptionFields.ts';
 import type { AnalyzeParams } from './src/types/index.ts';
-import { reviewFixedSymptoms, reviewFree } from './reviewPatientMessage.ts';
+import { FixedSymptomInputError, reviewFixedSymptoms, reviewFree } from './reviewPatientMessage.ts';
 import { requireUser } from './serverSecurity.ts';
 
 type Context = Required<AnalyzeParams>;
@@ -60,12 +60,8 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
       let text: string;
       if (fixed) {
         const draft = parseAnalysisResult(buildHerbalFollowup(context)).responseDraft;
-        const terms = await reviewers.reviewFixedSymptoms({ ...context, symptoms }, draft);
-        if (!terms.length) {
-          res.status(422).json({ code: 'PATIENT_INPUT', error: '처방명과 구분되는 실제 질환·증상을 입력해 주세요.' });
-          return;
-        }
-        // Keep the approved wording. Filtered-out shortcut terms must not re-enter the template.
+        const terms = await reviewers.reviewFixedSymptoms({ ...context, symptoms, prescriptionReferences }, draft);
+        if (!retainsAllFixedSymptoms(symptoms, terms)) throw new FixedSymptomInputError();
         symptoms = terms.join(', ');
         text = buildHerbalFollowup({ ...context, symptoms, selectedTreatments: [] });
         parseAnalysisResult(text);
@@ -77,16 +73,24 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         const draft = parseAnalysisResult(await generate(writingRules, prompt) || '');
         const clinicReference = buildClinicReference(treatments, context.selectedSituations, clinicalText);
         const source = { ...context, symptoms, selectedTreatments: treatments, prescriptionReferences, clinicReference };
-        const patient = normalizePatientMessage(await reviewers.reviewFree(source, draft.responseDraft)).trim();
-        if (!patient || /###\d+###/.test(patient)) throw new Error(INVALID_PATIENT_MESSAGE);
-        text = `###1###\n${draft.strategy}\n\n###2###\n${patient}\n\n###3###\n${draft.staffTip}`;
+        const result = await reviewers.reviewFree(source, draft);
+        const sections = [result.strategy, result.responseDraft, result.staffTip];
+        if (sections.some(part => typeof part !== 'string' || !part.trim() || /###\d+###/.test(part))) {
+          throw new Error(INVALID_PATIENT_MESSAGE);
+        }
+        const patient = normalizePatientMessage(result.responseDraft).trim();
+        text = `###1###\n${result.strategy}\n\n###2###\n${patient}\n\n###3###\n${result.staffTip}`;
       }
       if (findDisclosedPrescription(text, privateNames)) {
         res.status(422).json({ code: 'PRESCRIPTION_IN_OUTPUT', error: '처방명이 포함된 문안이라 표시할 수 없습니다. 다시 생성해 주세요.' });
         return;
       }
-      res.json({ text, reviewed: true, symptoms });
+      res.json({ text, reviewed: true, reviewVersion: MESSAGE_REVIEW_VERSION, symptoms });
     } catch (error) {
+      if (error instanceof FixedSymptomInputError) {
+        res.status(422).json({ code: 'PATIENT_INPUT', error: error.message });
+        return;
+      }
       if (error instanceof Error && error.message === INVALID_PATIENT_MESSAGE) {
         res.status(422).json({ code: 'INVALID_PATIENT_MESSAGE', error: INVALID_PATIENT_MESSAGE });
         return;

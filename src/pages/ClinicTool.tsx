@@ -15,7 +15,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { isHerbalFollowup, herbalFollowupError } from '../herbalFollowup';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
-import { INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
+import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
 
 const renderWithBoldLabels = (text: string) => {
   if (!text) return text;
@@ -56,7 +56,7 @@ export function ClinicTool() {
   const followupError = herbalFollowupError(params);
   const canSubmit = !symptomError && (isFollowup ? !followupError : Boolean(input.trim()));
   const formEmpty = !patientName && !symptoms && !input && !direction && !selectedTreatments.length && !selectedSituations.length;
-  const cached = user && formEmpty && savedResult?.reviewVersion === 1 && savedResult.owner === user.uid ? savedResult : null;
+  const cached = user && formEmpty && savedResult?.reviewVersion === MESSAGE_REVIEW_VERSION && savedResult.owner === user.uid ? savedResult : null;
   const patientText = typeof cached?.responseDraft === 'string' ? normalizePatientMessage(cached.responseDraft) : '';
   const result = patientText.trim() ? cached : null;
 
@@ -92,7 +92,7 @@ export function ClinicTool() {
       clearTextFields();
       setSelectedTreatments([]);
       setSelectedSituations([]);
-      setResult({ ...newResult, reviewVersion: 1, owner: user.uid });
+      setResult({ ...newResult, reviewVersion: MESSAGE_REVIEW_VERSION, owner: user.uid });
 
       try {
         await addDoc(collection(db, 'analyses'), {
