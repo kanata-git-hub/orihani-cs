@@ -16,6 +16,19 @@ export async function verifyAppUser(token: unknown, request: typeof fetch = fetc
   if (!lookup.ok) throw Error(lookup.status >= 500 || lookup.status === 429 ? 'AUTH_UNAVAILABLE' : 'AUTH_REQUIRED');
   const account = (await lookup.json()).users?.[0];
   if (typeof account?.localId !== 'string' || typeof account.email !== 'string' || account.disabled || account.emailVerified !== true) throw Error('AUTH_REQUIRED');
+  // Identity Toolkit has authenticated the token above. Revocation compares the
+  // original sign-in time, not the issue time of a subsequently refreshed JWT.
+  if (account.validSince !== undefined) {
+    let authTime: unknown;
+    try {
+      const payload = token.split('.')[1];
+      authTime = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')).auth_time;
+    } catch { throw Error('AUTH_REQUIRED'); }
+    const since = account.validSince;
+    if ((typeof since !== 'string' && typeof since !== 'number') || !/^\d+$/.test(String(since)) ||
+        !Number.isSafeInteger(Number(since)) || typeof authTime !== 'number' ||
+        !Number.isSafeInteger(authTime) || authTime < Number(since)) throw Error('AUTH_REQUIRED');
+  }
   const user = { uid: account.localId, email: account.email };
   if (account.email === OWNER || ACCESS_POLICY === 'signed-in') return user;
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };

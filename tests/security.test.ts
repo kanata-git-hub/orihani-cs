@@ -17,6 +17,22 @@ test('rejects missing, invalid, disabled and unverified identities before access
   }
 });
 
+test('enforces account revocation time after the provider has authenticated the token', async () => {
+  const issue = (claims: object) => 'synthetic.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.validated-by-test';
+  const verify = (jwt: string, validSince: unknown) => verifyAppUser(jwt, async () => reply({
+    users: [{ ...account, validSince }]
+  }));
+  await assert.rejects(verify(issue({ auth_time: 99, iat: 120 }), '100'), /AUTH_REQUIRED/);
+  for (const t of [100, 101]) assert.equal((await verify(issue({ auth_time: t }), '100')).uid, account.localId);
+  for (const claims of [{}, { auth_time: '105' }, { auth_time: -1 }, { auth_time: 101.5 }]) {
+    await assert.rejects(verify(issue(claims), '100'), /AUTH_REQUIRED/);
+  }
+  for (const badSince of [null, '', 'broken', -1, 100.5, '9007199254740992']) {
+    await assert.rejects(verify(issue({ auth_time: 102 }), badSince), /AUTH_REQUIRED/);
+  }
+  await assert.rejects(verify(token, '100'), /AUTH_REQUIRED/);
+});
+
 test('owner and existing approved/signed-in users retain access', async () => {
   const owner = await verifyAppUser(token, async () => reply({ users: [{ ...account, email: 'kanata840@gmail.com' }] }));
   assert.equal(owner.uid, 'user-one');

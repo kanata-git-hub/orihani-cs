@@ -22,7 +22,7 @@ service cloud.firestore {
 
     // match /approved_users
     match /approved_users/{docId} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.token.email == existing().email);
+      allow read: if isAdmin() || (isSignedIn() && request.auth.token.email_verified == true && request.auth.token.email == existing().email);
       allow write: if isAdmin();
     }
 
