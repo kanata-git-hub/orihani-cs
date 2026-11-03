@@ -1,9 +1,9 @@
 import { authFetch } from '../authFetch';
 import { buildSystemInstruction } from '../constants';
 import type { AnalyzeParams } from '../types';
-import { INVALID_PATIENT_MESSAGE, normalizePatientMessage } from '../patientMessageText';
+import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage } from '../patientMessageText';
 import { isHerbalFollowup, herbalFollowupError, buildHerbalFollowup } from '../herbalFollowup';
-import { inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
+import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
 import { getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
 
 export const PRESCRIPTION_OUTPUT_ERROR = '처방명이 포함된 문안이라 표시할 수 없습니다. 다시 생성해 주세요.';
@@ -61,12 +61,14 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
   }
 
   const data = await response.json();
-  if (data.reviewed !== true || typeof data.text !== 'string' || !data.text.trim()) {
+  if (data.reviewed !== true || data.reviewVersion !== MESSAGE_REVIEW_VERSION || typeof data.text !== 'string' || !data.text.trim()) {
     throw new Error(REVIEW_UNAVAILABLE);
   }
   const verifiedSymptoms = typeof data.symptoms === 'string' ? data.symptoms : symptoms;
   if (fixed) {
-    if (typeof data.symptoms !== 'string' || !data.symptoms.trim()) throw new Error(REVIEW_UNAVAILABLE);
+    if (typeof data.symptoms !== 'string' || !retainsAllFixedSymptoms(symptoms, fixedSymptomTerms(data.symptoms))) {
+      throw new Error(REVIEW_UNAVAILABLE);
+    }
     const canonical = buildHerbalFollowup({ ...params, symptoms: verifiedSymptoms, selectedTreatments: treatments });
     if (data.text !== canonical) throw new Error(REVIEW_UNAVAILABLE);
   }
