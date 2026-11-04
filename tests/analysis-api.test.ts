@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import express from 'express';
 import { analysisEndpoint } from '../analysisApi.ts';
 import { buildHerbalFollowup, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
-import { parseAnalysisResult } from '../src/patientMessageText.ts';
+import { MESSAGE_REVIEW_VERSION, parseAnalysisResult } from '../src/patientMessageText.ts';
+import { DIET_HERBAL_DIRECTIONS, HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
 
 test('authenticated generation returns only reviewed free messages and canonical fixed messages', async () => {
   const app = express();
@@ -11,6 +12,11 @@ test('authenticated generation returns only reviewed free messages and canonical
   let seenDraft = '', seenRules = '', seenReference = '', seenSymptoms = '';
   let seenTreatments: string[] = [], seenPrescriptions: string[] = [];
   const sensitive = 'synthetic-private-record';
+  const dietMealAdvice = '다이어트약은 식전에 드시는 것이 좋지만, 약효가 일정하게 유지되는 것이 더 중요하기 때문에 식후에 드셔도 됩니다.';
+  const expectedDiet = '한약은 하루 두 번 복용하시고, 한약과 한약 사이에는 6시간 이상 간격을 지켜 주세요. ' +
+    dietMealAdvice + ' 오늘 바로 드시지 않는 약은 냉장 보관해 주세요.';
+  const obsoleteDietLine = '다이어트 한약은 하루 2번, 오전 9~11시와 오후 4~6시쯤 복용하시고 냉장 보관해 주세요.';
+  const appointment = '오후 4시 예약을 확인했습니다.';
   const encode = (s: string) => '###1###\n내부 안내\n###2###\n' + s + '\n###3###\n내부 팁';
   app.use('/api/generate-analysis', analysisEndpoint(async (instruction, prompt) => {
     calls++;
@@ -28,6 +34,10 @@ test('authenticated generation returns only reviewed free messages and canonical
       seenSymptoms = context.symptoms;
       seenTreatments = context.selectedTreatments;
       seenPrescriptions = context.prescriptionReferences ?? [];
+      if (context.direction === 'fixture: reviewed diet') {
+        return { ...draft, responseDraft: [appointment, HERBAL_DIRECTIONS, DIET_HERBAL_DIRECTIONS,
+          obsoleteDietLine, HERBAL_DIRECTIONS, DIET_HERBAL_DIRECTIONS].join('\n\n') };
+      }
       if (draft.responseDraft === 'review-error') throw new Error('private-test-error');
       if (draft.responseDraft === 'bad-format') return { ...draft, staffTip:'###1### 숨겨진 내부 지시' };
       if (draft.responseDraft.includes('온청음')) return { strategy:'경과를 확인합니다.', responseDraft:'가상님, 안녕하세요.\\n\\n눈 가려움은 어떠신가요?', staffTip:'증상의 변화만 전달해 주세요.' };
@@ -65,7 +75,7 @@ test('authenticated generation returns only reviewed free messages and canonical
     assert.equal(fixed.status, 200);
     const fixedResult = await fixed.json();
     assert.equal(fixedResult.reviewed, true);
-    assert.equal(fixedResult.reviewVersion, 2);
+    assert.equal(fixedResult.reviewVersion, MESSAGE_REVIEW_VERSION);
     assert.equal(fixedResult.symptoms, '눈 주위 가려움, 피로');
     assert.equal(fixedResult.text, buildHerbalFollowup({ ...context, symptoms: '눈 주위 가려움, 피로', selectedTreatments: ['한약'] }));
     assert.equal((await request('ignored', {patientContext: { ...context, symptoms:'온청음', selectedTreatments:[] }})).status, 422);
@@ -82,20 +92,65 @@ test('authenticated generation returns only reviewed free messages and canonical
     const final = await reviewed.json();
     assert.equal(reviewed.status, 200);
     assert.equal(final.reviewed, true);
-    assert.equal(final.reviewVersion, 2);
+    assert.equal(final.reviewVersion, MESSAGE_REVIEW_VERSION);
     assert.equal(parseAnalysisResult(final.text).strategy,'경과를 확인합니다.');
     assert.equal(parseAnalysisResult(final.text).staffTip,'증상의 변화만 전달해 주세요.');
-    assert.equal(seenDraft, '온청음 증상');
+    assert.equal(seenDraft, '온청음 증상\n\n' + HERBAL_DIRECTIONS);
     assert.equal(seenSymptoms, '눈 주위 가려움, 피로');
     assert.deepEqual(seenTreatments, ['한약']);
     assert.deepEqual(seenPrescriptions, ['온청음']);
     assert.notEqual(seenRules, 'clinic');
     assert.doesNotMatch(seenReference, /FAKE_REVIEW_POLICY/);
     assert.match(seenReference, /냉장/);
-    assert.equal(parseAnalysisResult(final.text).responseDraft, '가상님, 안녕하세요.\n\n눈 가려움은 어떠신가요?');
+    const patient = parseAnalysisResult(final.text).responseDraft;
+    assert.ok(patient.includes('가상님, 안녕하세요.\n\n눈 가려움은 어떠신가요?'));
+    assert.equal(patient.split(HERBAL_DIRECTIONS).length, 2);
     const legacy = await request('hello');
     assert.equal((await legacy.json()).reviewed, true);
     assert.equal(seenRules, 'clinic');
+
+    // No model has supplied directions. The selected buttons alone determine the final copy.
+    const buttons = ['교통사고', '다이어트', '한약', '소화불량', '피로'];
+    for (const treatments of [...buttons.map(button => [button]), buttons, ['다이어트', '한약'],
+      ['약침', '피로'], ['약침'], []]) {
+      const diet = treatments.includes('다이어트');
+      const regular = !diet && buttons.some(button => treatments.includes(button));
+      const patientContext = { ...context, symptoms: '소화불량, 피로', input: '예약 시간 변경 문의',
+        selectedTreatments: treatments, selectedSituations: ['예약 변경/취소'] };
+      const baseReply = '희망하시는 시간을 알려주세요.';
+      const response = await request(baseReply, { patientContext });
+      assert.equal(response.status, 200, treatments.join(','));
+      const { text } = await response.json();
+      const result = parseAnalysisResult(text);
+      assert.ok(result.responseDraft.includes(baseReply));
+      assert.equal(result.responseDraft.split(HERBAL_DIRECTIONS).length - 1, Number(regular), treatments.join(','));
+      assert.equal(result.responseDraft.split(expectedDiet).length - 1, Number(diet), treatments.join(','));
+      assert.equal(result.responseDraft.split(dietMealAdvice).length - 1, Number(diet), treatments.join(','));
+      if (diet) assert.doesNotMatch(result.responseDraft, /식후에 복용하/);
+      assert.deepEqual([result.strategy, result.staffTip], ['내부 안내', '내부 팁']);
+      assert.doesNotMatch(result.responseDraft, /오전 9|오후 4/);
+    }
+    const withDirections = await request('이번 약을 준비했습니다.\n\n' + HERBAL_DIRECTIONS, {
+      patientContext: { ...context, selectedTreatments: ['한약', '피로'], selectedSituations: [] }
+    });
+    assert.equal(withDirections.status, 200);
+    assert.equal(parseAnalysisResult((await withDirections.json()).text).responseDraft.split(HERBAL_DIRECTIONS).length, 2);
+    const textOnly = await request('확인해 드리겠습니다.', {
+      patientContext: { ...context, selectedTreatments: [], selectedSituations: [], input: '지난번 다이어트 한약 문의' }
+    });
+    assert.equal(textOnly.status, 200);
+    assert.equal(parseAnalysisResult((await textOnly.json()).text).responseDraft, '확인해 드리겠습니다.');
+    const dietContext = { ...context, selectedTreatments: ['한약', '다이어트'], selectedSituations: [] };
+    for (const direction of ['', 'fixture: reviewed diet']) {
+      const olderDraft = [appointment, HERBAL_DIRECTIONS, obsoleteDietLine, DIET_HERBAL_DIRECTIONS].join('\n\n');
+      const response = await request(olderDraft, { patientContext: { ...dietContext, direction } });
+      assert.equal(response.status, 200);
+      const patient = parseAnalysisResult((await response.json()).text).responseDraft;
+      assert.ok(patient.includes(appointment));
+      assert.doesNotMatch(patient, /식후에 복용하|오전 9|오후 4~6시/);
+      assert.equal(patient.split(expectedDiet).length, 2);
+      assert.equal(patient.split(dietMealAdvice).length, 2);
+    }
 
     for (const [prompt, prescriptionNames] of [['반하사심탕을 드셨나요?', []], ['원내A방', ['원내A방']]]) {
       const blocked = await request(String(prompt), { prescriptionNames });

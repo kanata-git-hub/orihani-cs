@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildHerbalFollowup, herbalFollowupError, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
 import { resolvePatientSymptoms } from '../src/patientSymptoms.ts';
+import { HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
 import type { AnalyzeParams } from '../src/types/index.ts';
 
 const params: AnalyzeParams = {
@@ -9,17 +10,31 @@ const params: AnalyzeParams = {
   selectedTreatments: ['한약'], selectedSituations: [HERBAL_FOLLOWUP_SITUATION]
 };
 
-test('first contact matches the supplied five-paragraph template exactly', () => {
+test('first contact with the herbal chip includes the clinic directions in the patient template', () => {
   const message = buildHerbalFollowup(params).split(/###\d###/)[2].trim();
   assert.equal(message, `김○○님, 안녕하세요. 오리한의원입니다.
 
 지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?
+
+한약은 하루 두 번 식후에 복용하시고, 냉장 보관해 주세요.
 
 만성 소화불량 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 정도 치료를 이어가며 증상이 좋아지고 안정적으로 유지되는지 살펴보는 것이 좋습니다.
 
 현재 드시던 한약이 마무리되는 시기가 다가오고 있습니다. 내원해 주시면 그동안의 변화와 남아 있는 증상을 확인하고, 앞으로의 한약 치료에 대해서도 안내해 드리겠습니다.
 
 김○○님의 편안한 일상을 위해 오리한의원이 꾸준히 함께하겠습니다. 감사합니다.`);
+});
+
+test('only an eligible treatment selection adds one directions paragraph to fixed patient copy', () => {
+  for (const selectedTreatments of [['피로'], ['소화불량'], ['한약', '피로', '소화불량']]) {
+    const [, strategy, patient, staffTip] = buildHerbalFollowup({ ...params, selectedTreatments }).split(/###\d###/);
+    assert.equal(patient.split(HERBAL_DIRECTIONS).length - 1, 1);
+    assert.ok(!strategy.includes(HERBAL_DIRECTIONS) && !staffTip.includes(HERBAL_DIRECTIONS));
+  }
+  for (const selectedTreatments of [[], ['침']]) {
+    const result = buildHerbalFollowup({ ...params, selectedTreatments, symptoms: '피로, 소화불량', input: '한약' });
+    assert.ok(!result.includes(HERBAL_DIRECTIONS));
+  }
 });
 
 test('name and symptoms are enough without a patient response or situation', () => {
