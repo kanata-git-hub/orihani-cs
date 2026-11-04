@@ -43,6 +43,7 @@ function loadService(output) {
       const fields = submitted.patientContext;
       const body = typeof output === 'object' ? output : {
         reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, symptoms: symptoms.resolvePatientSymptoms(fields),
+        effectParagraph: '',
         text: output ?? (followup.isHerbalFollowup(fields) ? followup.buildHerbalFollowup(fields) : 'generated')
       };
       return { ok: true, json: async () => body };
@@ -191,12 +192,26 @@ test('fixed and free responses without successful review cannot be used', async 
 test('only positively identified prescriptions may be removed and fixed copy must match the approved template', async () => {
   const fields = { ...params, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION], patientName: '윤가온', symptoms: '눈 가려움, 원내비공개명', input: '처방명: 원내비공개명' };
   const final = followup.buildHerbalFollowup({ ...fields, symptoms: '눈 가려움' });
-  const service = loadService({ reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, text: final, symptoms: '눈 가려움' });
+  const service = loadService({ reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, text: final, symptoms: '눈 가려움', effectParagraph: '' });
   const res = await service.raw(fields);
   assert.equal(res.text, final);
   assert.equal(res.symptoms, '눈 가려움');
-  const contaminated = loadService({ reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, text: final + ' 추가 진료', symptoms: '눈 가려움' });
+  const contaminated = loadService({ reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, text: final + ' 추가 진료', symptoms: '눈 가려움', effectParagraph: '' });
   await assert.rejects(contaminated.generate(fields), /검수가 완료되지/);
+});
+
+test('only the reviewed prescription effect slot may extend the fixed template', async () => {
+  const fields = { ...params, patientName:'가상', symptoms:'발목 붓기', input:'이번에는 오령산을 드립니다.', selectedSituations:[followup.HERBAL_FOLLOWUP_SITUATION] };
+  const effect = '몸속의 남는 수분이 빠져나가도록 도와 발목의 붓기를 줄이기 위한 한약입니다.';
+  const data = { reviewed:true, reviewVersion:format.MESSAGE_REVIEW_VERSION, symptoms:fields.symptoms,
+    effectParagraph:effect, text:followup.buildHerbalFollowup(fields, effect) };
+  assert.equal(await loadService(data).generate(fields), data.text);
+  assert.equal(data.text.replace('\n\n' + effect, ''), followup.buildHerbalFollowup(fields));
+  await assert.rejects(loadService({ ...data, effectParagraph:'' }).generate(fields), /검수가 완료되지/);
+  await assert.rejects(loadService(data).generate({ ...fields, input:'' }), /검수가 완료되지/);
+  for (const unsafe of [effect+'\\n추가 문구', effect+'\n\n새 문단', '가이드: '+effect, '###2###', '오령산은 몸속의 남는 수분이 빠져나가도록 돕습니다.']) {
+    await assert.rejects(loadService({ ...data, effectParagraph:unsafe, text:followup.buildHerbalFollowup(fields, unsafe) }).generate(fields));
+  }
 });
 
 test('an earlier release or a partial symptom list cannot supply a copyable response', async () => {

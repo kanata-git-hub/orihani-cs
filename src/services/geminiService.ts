@@ -2,9 +2,9 @@ import { authFetch } from '../authFetch';
 import { buildSystemInstruction } from '../constants';
 import type { AnalyzeParams } from '../types';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage } from '../patientMessageText';
-import { isHerbalFollowup, herbalFollowupError, buildHerbalFollowup } from '../herbalFollowup';
+import { isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
 import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
-import { getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
+import { getEffectPrescriptionNames, getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
 
 export const PRESCRIPTION_OUTPUT_ERROR = '처방명이 포함된 문안이라 표시할 수 없습니다. 다시 생성해 주세요.';
 
@@ -54,6 +54,7 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
 
   if (!response.ok) {
     const errorData = await response.json();
+    if (errorData.code === 'EFFECT_REVIEW_INCOMPLETE') throw new PatientInputError(errorData.error || REVIEW_UNAVAILABLE);
     if (errorData.code === 'PATIENT_INPUT') throw new PatientInputError(errorData.error || '질환·증상을 확인해 주세요.');
     if (errorData.code === 'INVALID_PATIENT_MESSAGE') throw new Error(INVALID_PATIENT_MESSAGE);
     if (errorData.code === 'PRESCRIPTION_IN_OUTPUT') throw new Error(PRESCRIPTION_OUTPUT_ERROR);
@@ -69,7 +70,9 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
     if (typeof data.symptoms !== 'string' || !retainsAllFixedSymptoms(symptoms, fixedSymptomTerms(data.symptoms))) {
       throw new Error(REVIEW_UNAVAILABLE);
     }
-    const canonical = buildHerbalFollowup({ ...params, symptoms: verifiedSymptoms });
+    if (!isFixedEffectParagraph(data.effectParagraph) ||
+        (data.effectParagraph && !getEffectPrescriptionNames(input, direction).length)) throw new Error(REVIEW_UNAVAILABLE);
+    const canonical = buildHerbalFollowup({ ...params, symptoms: verifiedSymptoms }, data.effectParagraph);
     if (data.text !== canonical) throw new Error(REVIEW_UNAVAILABLE);
   }
   if (findDisclosedPrescription(normalizePatientMessage(data.text), prescriptionNames)) {

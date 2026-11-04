@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildHerbalFollowup, herbalFollowupError, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
 import { resolvePatientSymptoms } from '../src/patientSymptoms.ts';
+import { findDisclosedPrescription, getEffectPrescriptionNames, getReferencedPrescriptions, isKnownPrescriptionName } from '../src/prescriptionFields.ts';
 import { HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
 import type { AnalyzeParams } from '../src/types/index.ts';
 
@@ -9,6 +10,26 @@ const params: AnalyzeParams = {
   patientName: '김○○', symptoms: '만성 소화불량', input: '', direction: '',
   selectedTreatments: ['한약'], selectedSituations: [HERBAL_FOLLOWUP_SITUATION]
 };
+
+test('effect review sees each supplied formula in order, without treating a nested name as an extra ingredient', () => {
+  assert.deepEqual(getEffectPrescriptionNames('이번에도 같은 약(오령산+온청음)을 드립니다.', ''), ['오령산', '온청음']);
+  assert.deepEqual(getEffectPrescriptionNames('인진오령산 처방', ''), ['인진오령산']);
+  assert.deepEqual(getEffectPrescriptionNames('인진오령산+오령산', '온청음과 오령산'), ['인진오령산', '오령산', '온청음']);
+  assert.deepEqual(getEffectPrescriptionNames('처방명: 온청음을 유지합니다.', '처방명: 원내Q27'), ['온청음', '원내Q27']);
+  assert.deepEqual(getEffectPrescriptionNames('처방명이 없고 이전과 같은 한약입니다.', ''), []);
+  assert.ok(isKnownPrescriptionName('오령산'));
+  assert.equal(isKnownPrescriptionName('원내Q27'), false);
+  assert.ok(getReferencedPrescriptions('인진오령산').includes('오령산'));
+});
+
+test('explicit medicine slots protect named local preparations without classifying dosing or symptom notes', () => {
+  const message = '지난번과 같은 약(원내새봄탕+오령산)을 드립니다. 한약（가상환제Q3）도 문의하셨습니다.';
+  const names = getReferencedPrescriptions(message);
+  assert.deepEqual(getEffectPrescriptionNames(message, ''), ['원내새봄탕', '오령산', '가상환제Q3']);
+  assert.equal(findDisclosedPrescription('이번 원내새봄탕은', names), '원내새봄탕');
+  assert.equal(findDisclosedPrescription('가상환제Q3을 복용하세요.', names), '가상환제Q3');
+  assert.deepEqual(getEffectPrescriptionNames('일반한약(하루 두 번), 약(냉장 보관), 불편(원내새봄탕), 예약(가상환제Q3)', ''), []);
+});
 
 test('first contact with the herbal chip includes the clinic directions in the patient template', () => {
   const message = buildHerbalFollowup(params).split(/###\d###/)[2].trim();
