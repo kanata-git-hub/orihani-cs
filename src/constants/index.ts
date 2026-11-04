@@ -1,5 +1,6 @@
 import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms.ts';
 import { HERBAL_FOLLOWUP_SITUATION } from '../herbalFollowup.ts';
+import { herbalDirectionsFor } from '../herbalDirections.ts';
 
 export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약", ...SYMPTOM_TREATMENT_OPTIONS, "교통사고", "다이어트"];
 
@@ -114,7 +115,7 @@ export function buildClinicReference(treatments: string[], situations: string[],
   const instructions: string[] = [];
   const accident = treatments.includes('교통사고');
   const procedure = treatments.some(t => ['침', '약침', '초음파약침', '도침'].includes(t));
-  const untaggedConsult = treatments.length === 0 && !situations.includes('한약 복용/경과') && !/한약|탕약|복용/.test(clinicalText);
+  const untaggedConsult = treatments.every(t => SYMPTOM_TREATMENT_OPTIONS.includes(t)) && !situations.includes('한약 복용/경과') && !/한약|탕약|복용/.test(clinicalText);
   const shoulderInquiry = /오십견|석회성\s*건염/.test(clinicalText);
   const discussesProcedure = procedure || (untaggedConsult && (shoulderInquiry || /허리|어깨|무릎|손목|발목|목\s*통증|도침|약침/.test(clinicalText)));
 
@@ -126,14 +127,9 @@ export function buildClinicReference(treatments: string[], situations: string[],
   if (treatments.includes('초음파약침') || (discussesProcedure && shoulderInquiry)) instructions.push(ULTRASOUND_GUIDANCE);
   if (discussesProcedure && situations.includes('신환 상담/문의')) instructions.push(PROCEDURE_GUIDANCE);
 
-  if (situations.includes('원장')) {
-    if (situations.includes('한약 복용/경과')) {
-      if (treatments.includes('다이어트')) {
-        instructions.push('다이어트 한약은 하루 2번, 오전 9~11시와 오후 4~6시쯤 복용하시고 냉장 보관하시도록 안내하십시오.');
-      } else if (treatments.includes('한약') || accident) {
-        instructions.push('한약은 하루 2번, 식전 식후 무관하게 복용하시고 냉장 보관하시도록 안내하십시오.');
-      }
-    }
+  const directions = herbalDirectionsFor(treatments);
+  if (directions) {
+    instructions.push('선택된 치료의 원장 승인 복약 안내는 다음과 같다. 환자 문자에는 이 문구를 그대로 한 번만 넣고, 다른 횟수·시간대·식사 조건·보관법을 덧붙이거나 같은 안내를 되풀이하지 않는다.\n' + directions);
   }
   return instructions.join('\n\n');
 }

@@ -21,8 +21,11 @@ function loadModule(path, imports = {}) {
 
 const rx = loadModule('src/prescriptionFields.ts');
 const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
-const followup = loadModule('src/herbalFollowup.ts', { './patientSymptoms.ts': symptoms });
-const constants = loadModule('src/constants/index.ts', { '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms });
+const directions = loadModule('src/herbalDirections.ts');
+const followup = loadModule('src/herbalFollowup.ts', { './patientSymptoms.ts': symptoms, './herbalDirections.ts': directions });
+const constants = loadModule('src/constants/index.ts', {
+  '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms, '../herbalDirections.ts': directions
+});
 const format = loadModule('src/patientMessageText.ts');
 
 function loadService(output) {
@@ -39,7 +42,7 @@ function loadService(output) {
       submitted = JSON.parse(options.body);
       const fields = submitted.patientContext;
       const body = typeof output === 'object' ? output : {
-        reviewed: true, reviewVersion: 2, symptoms: symptoms.resolvePatientSymptoms(fields),
+        reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, symptoms: symptoms.resolvePatientSymptoms(fields),
         text: output ?? (followup.isHerbalFollowup(fields) ? followup.buildHerbalFollowup(fields) : 'generated')
       };
       return { ok: true, json: async () => body };
@@ -77,7 +80,9 @@ test('first 15-day situation always selects the original fixed text, even in a r
   const extra = { ...ordinary, input: '다른 상황 메모', direction: '자세히', selectedTraits: ['고령/기력저하'],
     selectedTreatments: ['한약', '도침'], selectedSituations: ['원장', followup.HERBAL_FOLLOWUP_SITUATION, '한약 복용/경과'] };
   assert.equal(await service.generate(ordinary), expected);
-  assert.equal(await service.generate(extra), expected);
+  const withDirections = await service.generate(extra);
+  assert.equal(withDirections, followup.buildHerbalFollowup(extra));
+  assert.ok(withDirections.includes(directions.HERBAL_DIRECTIONS));
   assert.equal(service.calls(), 2);
   assert.equal(service.request().mode, 'fixed');
   assert.equal(service.request().patientContext.symptoms, '피부 붉어짐, 만성 소화불량');
@@ -133,11 +138,12 @@ test('symptom choices produce the same ordinary prompt as direct symptom input',
   assert.match(selected.request().prompt, /선택된 치료: 침\n/);
 });
 
-test('a symptom choice alone does not invent a herbal treatment', async () => {
+test('a symptom choice keeps its symptom identity and sends the button selection for directions', async () => {
   const service = loadService();
   await service.generate({ ...params, symptoms: '', selectedTreatments: ['피로'] });
   assert.match(service.request().prompt, /질환·증상: 피로/);
   assert.match(service.request().prompt, /선택된 치료: 미지정/);
+  assert.deepEqual(service.request().patientContext.selectedTreatments, ['피로']);
 });
 
 test('a formula in the symptom list cannot become a symptom in fixed or generated messages', async () => {
@@ -156,7 +162,7 @@ test('a formula in the symptom list cannot become a symptom in fixed or generate
   }
   assert.equal(service.calls(), 2);
   const withButton = { ...fixed, symptoms: '반하사심탕', selectedTreatments: ['소화불량'] };
-  assert.equal(await service.generate(withButton), followup.buildHerbalFollowup({ ...fixed, symptoms: '소화불량' }));
+  assert.equal(await service.generate(withButton), followup.buildHerbalFollowup({ ...withButton, symptoms: '소화불량' }));
 });
 
 test('disclosing a formula in a generated response blocks copying, even if only the notes contained it', async () => {
@@ -185,17 +191,19 @@ test('fixed and free responses without successful review cannot be used', async 
 test('only positively identified prescriptions may be removed and fixed copy must match the approved template', async () => {
   const fields = { ...params, selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION], patientName: '윤가온', symptoms: '눈 가려움, 원내비공개명', input: '처방명: 원내비공개명' };
   const final = followup.buildHerbalFollowup({ ...fields, symptoms: '눈 가려움' });
-  const service = loadService({ reviewed: true, reviewVersion: 2, text: final, symptoms: '눈 가려움' });
+  const service = loadService({ reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, text: final, symptoms: '눈 가려움' });
   const res = await service.raw(fields);
   assert.equal(res.text, final);
   assert.equal(res.symptoms, '눈 가려움');
-  const contaminated = loadService({ reviewed: true, reviewVersion: 2, text: final + ' 추가 진료', symptoms: '눈 가려움' });
+  const contaminated = loadService({ reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, text: final + ' 추가 진료', symptoms: '눈 가려움' });
   await assert.rejects(contaminated.generate(fields), /검수가 완료되지/);
 });
 
 test('an earlier release or a partial symptom list cannot supply a copyable response', async () => {
   const fields = { ...params, patientName: '윤가온', symptoms: '피부 붉어짐, 소화불량', selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION] };
   const partial = followup.buildHerbalFollowup({ ...fields, symptoms: '피부 붉어짐' });
-  await assert.rejects(loadService({ reviewed:true, reviewVersion:2, symptoms:'피부 붉어짐',text:partial }).generate(fields), /검수가 완료되지/);
+  await assert.rejects(loadService({ reviewed:true, reviewVersion:format.MESSAGE_REVIEW_VERSION, symptoms:'피부 붉어짐',text:partial }).generate(fields), /검수가 완료되지/);
+  const currentText = followup.buildHerbalFollowup(fields);
+  await assert.rejects(loadService({ reviewed:true, reviewVersion:2, symptoms:fields.symptoms,text:currentText }).generate(fields), /검수가 완료되지/);
   await assert.rejects(loadService({ reviewed:true, text:partial }).generate({ ...params, selectedSituations:['한약 복용/경과'] }), /검수가 완료되지/);
 });

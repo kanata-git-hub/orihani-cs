@@ -1,4 +1,5 @@
 import type { AnalyzeParams } from './types';
+import { herbalDirectionsFor } from './herbalDirections.ts';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError } from './patientSymptoms.ts';
 
 export const HERBAL_FOLLOWUP_SITUATION = '일반한약 첫 15일 마무리 안내';
@@ -27,6 +28,7 @@ export function buildHerbalFollowup(params: AnalyzeParams): string {
   if (error) throw new Error(error);
   const name = (params.patientName || '').trim().replace(/님$/, '').trim();
   const symptoms = resolvePatientSymptoms(params);
+  const directions = herbalDirectionsFor(params.selectedTreatments);
   return `###1###
 속마음: 첫 15일 복용을 마무리하며 남은 불편과 경과를 확인하는 안내입니다.
 
@@ -35,7 +37,7 @@ export function buildHerbalFollowup(params: AnalyzeParams): string {
 ###2###
 ${name}님, 안녕하세요. 오리한의원입니다.
 
-지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?
+지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?${directions ? '\n\n' + directions : ''}
 
 ${symptoms} 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 정도 치료를 이어가며 증상이 좋아지고 안정적으로 유지되는지 살펴보는 것이 좋습니다.
 

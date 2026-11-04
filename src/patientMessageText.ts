@@ -1,6 +1,6 @@
 import type { AnalysisResult } from './types';
 
-export const MESSAGE_REVIEW_VERSION = 2;
+export const MESSAGE_REVIEW_VERSION = 3;
 export const INVALID_PATIENT_MESSAGE = '환자 문자와 직원 안내를 구분할 수 없습니다. 다시 생성해 주세요.';
 
 export function normalizePatientMessage(text: string): string {

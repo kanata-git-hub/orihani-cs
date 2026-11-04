@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { buildClinicReference, buildSystemInstruction } from './src/constants/index.ts';
 import { buildHerbalFollowup, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
+import { herbalDirectionsFor, withHerbalDirections } from './src/herbalDirections.ts';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
 import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
 import { findDisclosedPrescription, getReferencedPrescriptions } from './src/prescriptionFields.ts';
@@ -63,22 +64,24 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         const terms = await reviewers.reviewFixedSymptoms({ ...context, symptoms, prescriptionReferences }, draft);
         if (!retainsAllFixedSymptoms(symptoms, terms)) throw new FixedSymptomInputError();
         symptoms = terms.join(', ');
-        text = buildHerbalFollowup({ ...context, symptoms, selectedTreatments: [] });
+        text = buildHerbalFollowup({ ...context, symptoms });
         parseAnalysisResult(text);
       } else {
         const treatments = context.selectedTreatments.filter(t => !SYMPTOM_TREATMENT_OPTIONS.includes(t));
         const clinicalText = [symptoms, context.input].filter(Boolean).join('\n');
+        const directions = herbalDirectionsFor(context.selectedTreatments);
         const writingRules = patientContext
-          ? buildSystemInstruction(treatments, context.selectedSituations, clinicalText) : systemInstruction;
+          ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText) : systemInstruction;
         const draft = parseAnalysisResult(await generate(writingRules, prompt) || '');
-        const clinicReference = buildClinicReference(treatments, context.selectedSituations, clinicalText);
+        draft.responseDraft = withHerbalDirections(draft.responseDraft, directions);
+        const clinicReference = buildClinicReference(context.selectedTreatments, context.selectedSituations, clinicalText);
         const source = { ...context, symptoms, selectedTreatments: treatments, prescriptionReferences, clinicReference };
         const result = await reviewers.reviewFree(source, draft);
         const sections = [result.strategy, result.responseDraft, result.staffTip];
         if (sections.some(part => typeof part !== 'string' || !part.trim() || /###\d+###/.test(part))) {
           throw new Error(INVALID_PATIENT_MESSAGE);
         }
-        const patient = normalizePatientMessage(result.responseDraft).trim();
+        const patient = withHerbalDirections(normalizePatientMessage(result.responseDraft).trim(), directions);
         text = `###1###\n${result.strategy}\n\n###2###\n${patient}\n\n###3###\n${result.staffTip}`;
       }
       if (findDisclosedPrescription(text, privateNames)) {

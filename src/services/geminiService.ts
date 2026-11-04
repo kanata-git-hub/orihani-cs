@@ -46,7 +46,7 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
         patientName: params.patientName || '', symptoms: params.symptoms || '',
         input, direction, selectedTreatments, selectedSituations
       },
-      systemInstruction: buildSystemInstruction(treatments, selectedSituations, [symptoms, input].filter(Boolean).join('\n')),
+      systemInstruction: buildSystemInstruction(selectedTreatments, selectedSituations, [symptoms, input].filter(Boolean).join('\n')),
       prompt,
       ...(prescriptionNames.length > 0 && { prescriptionNames })
     })
@@ -69,7 +69,7 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
     if (typeof data.symptoms !== 'string' || !retainsAllFixedSymptoms(symptoms, fixedSymptomTerms(data.symptoms))) {
       throw new Error(REVIEW_UNAVAILABLE);
     }
-    const canonical = buildHerbalFollowup({ ...params, symptoms: verifiedSymptoms, selectedTreatments: treatments });
+    const canonical = buildHerbalFollowup({ ...params, symptoms: verifiedSymptoms });
     if (data.text !== canonical) throw new Error(REVIEW_UNAVAILABLE);
   }
   if (findDisclosedPrescription(normalizePatientMessage(data.text), prescriptionNames)) {
