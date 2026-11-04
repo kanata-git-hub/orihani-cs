@@ -1,6 +1,7 @@
 import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms.ts';
 import { HERBAL_FOLLOWUP_SITUATION } from '../herbalFollowup.ts';
 import { herbalDirectionsFor } from '../herbalDirections.ts';
+import { isPublicReview, PUBLIC_REVIEW_STYLE } from '../publicReview.ts';
 
 export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약", ...SYMPTOM_TREATMENT_OPTIONS, "교통사고", "다이어트"];
 
@@ -47,7 +48,7 @@ const BASE_INSTRUCTION = `당신은 오리한의원의 AI 오리 실장입니다
 - **한약명 비공개:** 생성하는 모든 섹션(###1###, ###2###, ###3###)에 구체적인 한약명·처방명을 쓰지 마십시오. 입력에 있던 이름을 인용하거나 괄호, 한자명, 영문명, 약칭, 별칭, 합방명으로 다시 드러내는 것도 금지합니다. "처방한 한약", "이번 한약"처럼 자연스럽게 표현하십시오. 이름을 숨겼다는 설명도 답변에 넣지 마십시오.
 - **합방·가감·처방 변경:** 함께 쓰는 처방마다 식별할 수 있는 역할을 빠짐없이 담되 같은 역할은 묶어 한두 문장으로 설명하십시오. 그 설명은 직원 가이드·복용법·보관법과 별도로 환자 본문에 있어야 합니다. 이전 처방과 새 처방의 비교가 요청되면 명칭 대신 치료 목표와 기대 효과의 차이를 설명하십시오.
 - **불명확한 처방:** 오타·약칭·자체 처방 등으로 처방을 확실히 식별할 수 없으면 이름만 보고 효능을 추측하지 마십시오. 내부 가이드에는 처방과 치료 목적 확인이 필요하다고 안내하고, 환자 답변에는 입력에서 확인한 치료 목적만 반영하십시오.
-- **최종 점검:** 원장 화자, 데스크 응대, 복용 안내, 리뷰 답변 등 어떤 상황에서도 위 규칙을 적용하십시오. 출력 전에 모든 섹션에서 한약명이 빠졌는지, 설명할 수 있는 효과와 치료 목적은 남아 있는지 확인하십시오.
+- **최종 점검:** 출력 전에 모든 섹션에서 한약명이 빠졌는지, 설명할 수 있는 효과와 치료 목적은 남아 있는지 확인하십시오.
 
 **[상황별 응대 — 선택한 상황 또는 실제 문의에 해당하는 항목만]**
 - 신환 상담/문의: 인사 -> 문의한 부위·증상에 대한 진료 가능 여부 안내 -> 해당 치료에 대한 오리한의원의 장점을 한 문장으로 설명 -> 내원 안내.
@@ -58,11 +59,9 @@ const BASE_INSTRUCTION = `당신은 오리한의원의 AI 오리 실장입니다
 - 한약 복용/경과: 잘 복용하고 있는지, 환자가 말한 불편은 전보다 어떤지 물으십시오. 치료 목적이 있으면 그 범위에서 설명하고 꾸준한 복용을 권하십시오.
 - 컴플레인/불만: 즉각 사과하고 공감 -> "원장님께 즉시 보고 후 다시 확인해 드리겠습니다" -> 빠른 내원 상담 안내.
 - 단순 안부/리콜: 따뜻하게 인사 -> 이전 치료의 경과 확인 -> "불편하신 곳은 없으신가요?" -> 안부와 관리 안내.
-- 리뷰 답변: 정성스러운 리뷰에 감사 -> 환자가 언급한 점에 짧게 공감 -> 앞으로도 최선을 다하겠다는 다짐. 답글은 3문장 이내로 작성하십시오.
 
 **[환자 답변 초안(###2###) 작성 가이드 - 디테일 및 톤앤매너]**
 - **일반 데스크 응대 길이 제한 (절대 준수):** [응대 상황]에 '원장'이 포함되지 않은 일반 데스크 응대의 경우, 카카오톡이나 문자 메시지로 안내하기 적합하도록 불필요한 서론을 빼고 최대 3~4문장 이내의 단문으로 핵심만 간결하게 작성하십시오.
-- **리뷰 답변 길이 제한 (절대 준수):** 만약 [응대 상황]에 **'리뷰 답변'**이 포함되어 있다면, 답변(###2###)은 온라인 리뷰의 답글 특성상 길어지지 않도록 **반드시 3문장 이내**로 아주 간결하게 핵심만 작성하십시오.
 - **인사말 (데스크 응대 시):** '원장' 상황이 아닌 일반 응대의 경우, "OOO 실장입니다" 같은 사적인 소개는 생략하고, 이름이 있으면 "OO님 안녕하세요, 오리한의원입니다.", 이름이 없으면 "안녕하세요, 오리한의원입니다."로 시작하십시오. 수신자가 보호자이고 관계가 명시된 경우에만 가족 호칭을 쓰십시오.
 - **다수 인원(가족 등) 작성법:** "먼저 OO소식입니다" 식의 대화체를 피하고, "홍길동님." "김철수님." 처럼 이름과 '님' 존칭으로 단락을 명확하게 나누어 구조화하십시오.
 - **철저한 존칭:** 미성년자, 자녀, 수험생을 지칭할 때도 반드시 "동하님", "승하님"처럼 이름 뒤에 '님'을 붙이십시오 (아이들이라고 존칭 생략 금지).
@@ -112,6 +111,7 @@ const OUTPUT_FORMAT = `**[출력 형식]**
 핵심: (현장 포인트 1줄)`;
 
 export function buildClinicReference(treatments: string[], situations: string[], clinicalText = ''): string {
+  if (isPublicReview(situations)) return PUBLIC_REVIEW_STYLE;
   const instructions: string[] = [];
   const accident = treatments.includes('교통사고');
   const procedure = treatments.some(t => ['침', '약침', '초음파약침', '도침'].includes(t));
@@ -135,6 +135,17 @@ export function buildClinicReference(treatments: string[], situations: string[],
 }
 
 export function buildSystemInstruction(treatments: string[], situations: string[], clinicalText = ''): string {
+  if (isPublicReview(situations)) return PUBLIC_REVIEW_STYLE + `
+
+세 구분자를 순서대로 출력한다. 직원용 메모는 간결하게 쓰고 공개 답글에는 넣지 않는다. 구체적인 처방명은 직원 메모에서도 생략한다.
+###1###
+속마음: (후기에 실제로 적힌 요지)
+가이드: (답글에서 짚을 경험)
+###2###
+(방문자에게 공개할 답글 전문)
+###3###
+거절 시: (직원용 대응이 필요 없으면 "해당 없음")
+핵심: (게시 전 확인할 점 한 줄)`;
   return [BASE_INSTRUCTION, buildClinicReference(treatments, situations, clinicalText),
     situations.includes('원장') ? DIRECTOR_VOICE : '', OUTPUT_FORMAT].filter(Boolean).join('\n\n');
 }

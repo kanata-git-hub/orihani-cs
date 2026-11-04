@@ -9,6 +9,7 @@ import type { AnalyzeParams } from './src/types/index.ts';
 import { FixedSymptomInputError, reviewFixedSymptoms, reviewFree } from './reviewPatientMessage.ts';
 import { requireUser } from './serverSecurity.ts';
 import { IncompleteEffectReview } from './prescriptionEffectReview.ts';
+import { isPublicReview, publicReviewContext, publicReviewPrompt, REVIEW_FOLLOWUP_CONFLICT } from './src/publicReview.ts';
 
 type Context = Required<AnalyzeParams>;
 type Generate = (instruction: string, prompt: string) => Promise<string | undefined>;
@@ -48,11 +49,18 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
     }
 
     // Compatibility with already-open older clients. Only the staff's input is evidence for review.
-    const context: Context = patientContext ? {
+    const submitted: Context = patientContext ? {
       patientName: patientContext.patientName, symptoms: patientContext.symptoms, input: patientContext.input,
       direction: patientContext.direction, selectedTreatments: patientContext.selectedTreatments, selectedSituations: patientContext.selectedSituations,
     } : { patientName: '', symptoms: '', input: prompt, direction: '', selectedTreatments: [], selectedSituations: [] };
     try {
+      const publicReply = isPublicReview(submitted.selectedSituations);
+      if (publicReply && (isHerbalFollowup(submitted) || !submitted.input.trim())) {
+        const error = isHerbalFollowup(submitted) ? REVIEW_FOLLOWUP_CONFLICT : '답변할 공개 리뷰 원문이나 별점을 입력해 주세요.';
+        res.status(422).json({ code: 'PATIENT_INPUT', error });
+        return;
+      }
+      const context = publicReply ? publicReviewContext(submitted.input, submitted.direction) : submitted;
       const inspected = inspectPatientSymptomInput(context);
       let symptoms = resolvePatientSymptoms(context, inspected);
       const fixed = isHerbalFollowup(context);
@@ -86,7 +94,8 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         const directions = herbalDirectionsFor(context.selectedTreatments);
         const writingRules = patientContext
           ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText) : systemInstruction;
-        const draft = parseAnalysisResult(await generate(writingRules, prompt) || '');
+        const writingPrompt = publicReply ? publicReviewPrompt(context.input, context.direction) : prompt;
+        const draft = parseAnalysisResult(await generate(writingRules, writingPrompt) || '');
         draft.responseDraft = withHerbalDirections(draft.responseDraft, directions);
         const clinicReference = buildClinicReference(context.selectedTreatments, context.selectedSituations, clinicalText);
         const source = { ...context, symptoms, selectedTreatments: treatments, prescriptionReferences, clinicReference };

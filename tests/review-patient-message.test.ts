@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import { reviewFixedSymptoms, reviewFree } from '../reviewPatientMessage.ts';
+import { PUBLIC_REVIEW_GREETING } from '../src/publicReview.ts';
 
 const input = { patientName: '김하민', symptoms: '눈 주위 가려움, 온청음, 새 원내 제제, 지속되는 왼손 부기',
   input: '자녀 김별하님의 눈 주위 가려움, 왼손 부기를 문의함. 온청음은 한약명.', direction: '',
@@ -20,6 +21,48 @@ const clean = { strategy: '속마음: 시간을 문의했습니다.\n\n가이드
   responseDraft: '안녕하세요.', staffTip: '거절 시: 희망 시간을 여쭙습니다.\n\n핵심: 예약 확정 전입니다.' };
 const keep = { status: 'keep', strategy: '', responseDraft: '', staffTip: '' };
 const freeInput = { ...input, input: '자녀 김별하님의 눈 주위 가려움과 왼손 부기를 문의함.' };
+
+test('public review uses the published words and a separate editorial brief for Argon', async t => {
+  const context = { ...freeInput, input: '한약을 받으러 갔는데 기다리는 동안 아무 안내가 없어서 아쉬웠습니다.',
+    patientName:'기록전용이름', symptoms:'기록전용증상', selectedSituations:['리뷰 답변'], selectedTreatments:['한약'],
+    prescriptionReferences:['원내Q27'], direction:'짧게' };
+  const draft = { ...clean, responseDraft:'후기 감사합니다. 저희 치료에 만족하셔서 다행입니다. 한약은 하루 두 번 드세요.' };
+  const final = { strategy:'속마음: 대기 중 안내가 없었다는 후기입니다.\n\n가이드: 불편하셨던 대목에 답합니다.',
+    responseDraft:PUBLIC_REVIEW_GREETING + '\n기다리시는 동안 안내를 받지 못해 답답하셨겠습니다. 다음에는 대기 상황을 더 세심하게 안내드리겠습니다.',
+    staffTip:'거절 시: 답글에서 논쟁하지 않습니다.\n\n핵심: 대기 안내에 대한 의견을 확인합니다.' };
+  const mock = provider(t, {status:'revise', ...final});
+  assert.deepEqual(await reviewFree(context, draft), final);
+  const body = JSON.parse(String(mock.mock.calls[0].arguments[1]?.body));
+  assert.equal(mock.mock.callCount(), 1);
+  const instruction = body.systemInstruction.parts[0].text;
+  assert.match(instruction, /공개 리뷰 답글/);
+  assert.match(instruction, /불만/);
+  assert.doesNotMatch(instruction, /formulaEffects|처방을 명시했다면/);
+  const evidence = JSON.parse(body.contents[0].parts[0].text);
+  assert.equal(evidence.review, context.input);
+  assert.equal(evidence.tone, '짧게');
+  assert.equal(evidence.context, undefined);
+  assert.doesNotMatch(body.contents[0].parts[0].text, /기록전용|원내Q27/);
+  assert.ok(!body.generationConfig.responseSchema.required.includes('formulaEffects'));
+});
+
+test('public replies keep one owner greeting and never need to expand prescription names from reviews', async t => {
+  const form = { ...freeInput, selectedSituations:['원장','리뷰 답변'], selectedTreatments:['다이어트'],
+    input:'오령산을 받으러 갔는데 직원분들이 친절했어요.' };
+  const message = PUBLIC_REVIEW_GREETING + '\n직원들의 안내를 좋게 봐주셔서 감사합니다.';
+  await t.test('valid reply is kept', async st => {
+    provider(st, keep);
+    assert.equal((await reviewFree(form, { ...clean, responseDraft:message })).responseDraft, message);
+  });
+  for (const [label, responseDraft] of [['desk greeting', '안녕하세요, 오리한의원입니다. 감사합니다.'],
+    ['greeting only', PUBLIC_REVIEW_GREETING], ['duplicate greeting', message + '\n' + PUBLIC_REVIEW_GREETING],
+    ['disclosed formula', message + ' 오령산도 잘 복용해 주세요.']]) {
+    await t.test(label, async st => {
+      provider(st, keep);
+      await assert.rejects(reviewFree(form, { ...clean, responseDraft }), { status:503 });
+    });
+  }
+});
 
 test('keeps all three acceptable sections and same-child address, normalizing the patient copy', async t => {
   const mock = provider(t, keep);

@@ -5,13 +5,18 @@ import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessag
 import { isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
 import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
 import { getEffectPrescriptionNames, getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
+import { isPublicReview, publicReviewContext, publicReviewPrompt, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 
 export const PRESCRIPTION_OUTPUT_ERROR = '처방명이 포함된 문안이라 표시할 수 없습니다. 다시 생성해 주세요.';
 
 export const REVIEW_UNAVAILABLE = '검수가 완료되지 않았습니다. 입력을 유지했으니 다시 생성해 주세요.';
 export class PatientInputError extends Error {}
 
-export const analyzePatientMessage = async (params: AnalyzeParams) => {
+export const analyzePatientMessage = async (form: AnalyzeParams) => {
+  const publicReply = isPublicReview(form.selectedSituations);
+  if (publicReply && isHerbalFollowup(form)) throw new PatientInputError(REVIEW_FOLLOWUP_CONFLICT);
+  if (publicReply && !form.input.trim()) throw new PatientInputError('방문자가 남긴 리뷰 원문이나 별점을 입력해 주세요.');
+  const params = publicReply ? publicReviewContext(form.input, form.direction) : form;
   const field = inspectPatientSymptomInput(params);
   const symptoms = resolvePatientSymptoms(params, field);
   const fieldError = symptomInputError(field, symptoms);
@@ -29,7 +34,7 @@ export const analyzePatientMessage = async (params: AnalyzeParams) => {
     field.prescriptions.length > 0 && `참고용 처방명(환자 증상 아님·출력 금지): ${field.prescriptions.join(', ')}`
   ].filter(Boolean).join("\n");
 
-  const prompt = `[환자 및 상황 정보]
+  const prompt = publicReply ? publicReviewPrompt(input, direction) : `[환자 및 상황 정보]
 ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보 없음"}
 선택된 치료: ${treatments.join(", ") || "미지정"}
 응대 상황: ${selectedSituations.join(", ") || "미지정"}
