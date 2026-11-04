@@ -4,7 +4,7 @@ import {
   RefreshCw, PlusCircle, Stethoscope
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TREATMENT_GROUPS, SITUATION_GROUPS, INITIAL_GREETING } from '../constants';
+import { TREATMENT_GROUPS, SITUATION_GROUPS } from '../constants';
 import { AnalysisResult } from '../types';
 import { analyzePatientMessage, PRESCRIPTION_OUTPUT_ERROR, REVIEW_UNAVAILABLE, PatientInputError } from '../services/geminiService';
 import { TagSelector } from '../components/TagSelector';
@@ -13,10 +13,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { HERBAL_FOLLOWUP_SITUATION, isHerbalFollowup, herbalFollowupError } from '../herbalFollowup';
+import { HERBAL_FOLLOWUP_SITUATION, isHerbalFollowup, herbalFollowupTreatmentError } from '../herbalFollowup';
 import { isPublicReview, publicReviewContext, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
+
+const fieldColors = (invalid: boolean) => invalid
+  ? 'border-2 border-red-600 bg-red-50 focus:border-red-700 focus:ring-red-300'
+  : 'border border-[#552c24]/20 bg-white focus:border-[#ffcd4a] focus:ring-[#ffcd4a]/50';
 
 const renderWithBoldLabels = (text: string) => {
   if (!text) return text;
@@ -55,13 +59,26 @@ export function ClinicTool() {
   const showResolvedSymptoms = !symptomError && Boolean(effectiveSymptoms) &&
     (symptomChoices.length > 0 || symptomField.prescriptions.length > 0);
   const isFollowup = isHerbalFollowup(params);
-  const followupError = herbalFollowupError(params);
   const conflictingModes = publicReply && isFollowup;
-  const canSubmit = !conflictingModes && !symptomError && (isFollowup ? !followupError : Boolean(input.trim()));
+  const nameIssue = isFollowup && !publicReply && !patientName.trim() ? '환자 이름을 입력해 주세요.' : null;
+  const symptomIssue = symptomError || (isFollowup && !publicReply && !effectiveSymptoms
+    ? '질환·증상을 입력하거나 아래에서 소화불량·피로를 선택해 주세요.' : null);
+  const treatmentIssue = publicReply ? null : herbalFollowupTreatmentError(params);
+  const messageIssue = !isFollowup && !input.trim()
+    ? (publicReply ? '방문자가 남긴 리뷰 원문이나 별점을 입력해 주세요.' : '환자 메시지나 응대할 상황을 입력해 주세요.') : null;
+  const issues = [
+    { id: 'patient-name', label: '환자 이름', problem: nameIssue },
+    { id: 'patient-symptoms', label: '질환·증상', problem: symptomIssue },
+    { id: 'treatment-options', label: '치료 종류', problem: treatmentIssue },
+    { id: 'situation-options', label: '응대 상황', problem: conflictingModes },
+    { id: 'patient-situation', label: publicReply ? '공개 리뷰' : '환자 메시지 또는 상황', problem: messageIssue },
+  ].filter(field => field.problem);
+  const canSubmit = issues.length === 0;
   const formEmpty = !patientName && !symptoms && !input && !direction && !selectedTreatments.length && !selectedSituations.length;
   const cached = user && formEmpty && savedResult?.reviewVersion === MESSAGE_REVIEW_VERSION && savedResult.owner === user.uid ? savedResult : null;
   const patientText = typeof cached?.responseDraft === 'string' ? normalizePatientMessage(cached.responseDraft) : '';
   const result = patientText.trim() ? cached : null;
+  const showIssues = !result && !isLoading;
 
   function invalidateResult() {
     editVersion.current++;
@@ -151,31 +168,8 @@ export function ClinicTool() {
 
   return (
     <>
-      <AnimatePresence mode="wait">
-        {!result && !isLoading && (
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="max-w-5xl mx-auto bg-white border border-[#552c24]/10 rounded-2xl sm:rounded-[32px] p-4 sm:p-8 shadow-sm mb-5 sm:mb-10"
-          >
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="hidden sm:flex w-12 h-12 rounded-2xl flex items-center justify-center overflow-hidden bg-white shadow-sm border border-[#552c24]/10 shrink-0">
-                <img src="/icon.png" alt="AI 실장" className="w-full h-full object-cover" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="sm:hidden text-lg font-bold leading-7">환자 정보와 상황을 입력해 주세요. 오리 실장이 응대 문자를 준비해 드립니다.</p>
-                <div className="hidden sm:block whitespace-pre-wrap text-[#552c24] leading-relaxed text-xl font-bold">
-                  {INITIAL_GREETING}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <section className="max-w-5xl mx-auto space-y-6">
-        <form onSubmit={handleSubmit} onChange={invalidateResult} className="space-y-5 sm:space-y-6">
+        <form noValidate onSubmit={handleSubmit} onChange={invalidateResult} className="space-y-5 sm:space-y-6">
           <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
             <span id="clear-inputs-help" className="order-2 sm:order-none text-sm text-[#552c24]/85 sm:text-[#552c24]/70">선택한 메뉴는 유지됩니다.</span>
             <button type="button" onClick={() => { invalidateResult(); clearTextFields(); }} aria-describedby="clear-inputs-help"
@@ -193,8 +187,9 @@ export function ClinicTool() {
               <input id="patient-name" type="text" value={patientName}
                 onChange={e => setPatientName(e.target.value)}
                 placeholder="예: 김○○" autoComplete="off" maxLength={100}
-                required={isFollowup} aria-describedby="patient-fields-help"
-                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-lg sm:text-xl" />
+                required={isFollowup} aria-invalid={showIssues && Boolean(nameIssue)} aria-describedby={showIssues && nameIssue ? 'name-error' : undefined}
+                className={`w-full min-w-0 scroll-mt-20 p-4 sm:p-5 rounded-2xl focus:ring-2 outline-none text-lg sm:text-xl ${fieldColors(showIssues && Boolean(nameIssue))}`} />
+              {showIssues && nameIssue && <p id="name-error" className="text-base font-bold text-red-800">{nameIssue}</p>}
             </div>
             <div className="space-y-2">
               <label htmlFor="patient-symptoms" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
@@ -203,12 +198,12 @@ export function ClinicTool() {
               <input id="patient-symptoms" type="text" value={symptoms}
                 onChange={e => setSymptoms(e.target.value)}
                 placeholder={symptomChoices.length ? "추가 증상이 있으면 입력해 주세요 (선택)" : "증상 직접 입력 또는 아래 버튼 선택"} autoComplete="off" maxLength={300}
-                required={isFollowup && symptomChoices.length === 0} aria-invalid={Boolean(symptomError)}
-                aria-describedby={`patient-fields-help${symptomError ? ' symptom-error' : ''}${showResolvedSymptoms ? ' selected-symptoms' : ''}`}
-                className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-lg sm:text-xl" />
+                required={isFollowup && symptomChoices.length === 0} aria-invalid={showIssues && Boolean(symptomIssue)}
+                aria-describedby={showIssues && symptomIssue ? 'symptom-error' : showResolvedSymptoms ? 'selected-symptoms' : undefined}
+                className={`w-full min-w-0 scroll-mt-20 p-4 sm:p-5 rounded-2xl focus:ring-2 outline-none text-lg sm:text-xl ${fieldColors(showIssues && Boolean(symptomIssue))}`} />
+              {showIssues && symptomIssue && <p id="symptom-error" className="text-base font-bold text-red-800">{symptomIssue}</p>}
             </div>
           </div>
-          {symptomError && <p id="symptom-error" className="text-base font-semibold text-red-700" role="alert">{symptomError}</p>}
           {symptomField.prescriptions.length > 0 && !symptomError && (
             <p className="text-base text-[#552c24]" role="status">
               {isFollowup ? '처방명을 고정 안내 문자에서 제외했습니다.' : '처방명은 질환·증상에서 분리해 참고용으로만 사용합니다.'}
@@ -219,23 +214,12 @@ export function ClinicTool() {
               반영할 질환·증상: {effectiveSymptoms}
             </p>
           )}
-          <p id="patient-fields-help" className="text-base sm:text-sm text-[#552c24]/85 sm:text-[#552c24]/70 leading-7 sm:leading-relaxed">
-            환자가 호소한 질환·증상을 입력해 주세요. 소화불량·피로는 아래 치료 종류에서 선택할 수 있습니다.
-          </p>
           </>}
 
           <div className="space-y-4">
-            {!publicReply && <TagSelector icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />}
-            <TagSelector icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ 원장: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
+            {!publicReply && <TagSelector id="treatment-options" error={showIssues ? treatmentIssue : null} icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />}
+            <TagSelector id="situation-options" error={showIssues && conflictingModes ? REVIEW_FOLLOWUP_CONFLICT : null} icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ 원장: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
           </div>
-
-          {conflictingModes && <p className="text-base font-semibold text-red-700" role="alert">{REVIEW_FOLLOWUP_CONFLICT}</p>}
-          {isFollowup && !publicReply && (
-            <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-base sm:text-sm leading-7 sm:leading-relaxed" role="status">
-              첫 15일 안내에서는 고정 문구를 사용합니다. 환자 이름과 질환·증상만 반영하며 한약 버튼은 따로 누를 필요가 없습니다. 교통사고·다이어트는 제외합니다.
-              {followupError && !symptomError && <p className="mt-1 font-bold">{followupError}</p>}
-            </div>
-          )}
 
           <div className="space-y-2">
             <label htmlFor="patient-situation" className="text-lg sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
@@ -243,10 +227,12 @@ export function ClinicTool() {
             </label>
             <textarea id="patient-situation"
               value={input} onChange={(e) => setInput(e.target.value)}
-              placeholder={publicReply ? "리뷰 원문을 붙여넣어 주세요. 별점만 있는 후기는 ‘별점 5점’처럼 입력해 주세요." : isFollowup ? "추가 상황 메모 (선택) — 고정 안내 문자에는 이름과 질환·증상만 반영합니다." : "환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."}
-              className="w-full h-40 sm:h-48 p-4 sm:p-6 bg-white border border-[#552c24]/20 rounded-2xl sm:rounded-3xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all resize-y text-lg sm:text-2xl leading-[1.8] sm:leading-relaxed shadow-sm font-medium"
+              placeholder={publicReply ? "리뷰 원문 또는 별점 (예: 별점 5점)" : isFollowup ? "추가로 전달할 상황이 있으면 입력해 주세요." : "환자의 메시지를 붙여넣거나 상황을 적어 주세요."}
+              className={`w-full scroll-mt-20 h-40 sm:h-48 p-4 sm:p-6 rounded-2xl sm:rounded-3xl focus:ring-2 outline-none resize-y text-lg sm:text-2xl leading-[1.8] sm:leading-relaxed shadow-sm font-medium ${fieldColors(showIssues && Boolean(messageIssue))}`}
+              aria-invalid={showIssues && Boolean(messageIssue)} aria-describedby={showIssues && messageIssue ? 'message-error' : undefined}
               required={!isFollowup}
             />
+            {showIssues && messageIssue && <p id="message-error" className="text-base font-bold text-red-800">{messageIssue}</p>}
           </div>
 
           <div className="space-y-2">
@@ -260,6 +246,10 @@ export function ClinicTool() {
             />
           </div>
 
+          {showIssues && issues.length > 0 && <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-bold text-red-800">
+            <span>확인할 곳</span>
+            {issues.map(field => <a key={field.id} href={`#${field.id}`} className="underline underline-offset-4">{field.label}</a>)}
+          </div>}
           <button type="submit" disabled={isLoading || !canSubmit}
             className={`w-full py-4 sm:py-6 rounded-2xl sm:rounded-full flex items-center justify-center gap-3 font-bold text-lg sm:text-2xl transition-all shadow-xl ${
               isLoading || !canSubmit ? 'bg-[#552c24]/10 text-[#552c24]/40 cursor-not-allowed' : 'bg-[#ffcd4a] text-[#552c24] hover:bg-[#ffcd4a]/90 active:scale-[0.98] shadow-[#ffcd4a]/20'

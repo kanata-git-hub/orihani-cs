@@ -8,11 +8,16 @@ export function isHerbalFollowup(params: Pick<AnalyzeParams, 'selectedSituations
   return params.selectedSituations.includes(HERBAL_FOLLOWUP_SITUATION);
 }
 
+export function herbalFollowupTreatmentError(params: AnalyzeParams): string | null {
+  return isHerbalFollowup(params) && params.selectedTreatments.some(t => t === '교통사고' || t === '다이어트')
+    ? '첫 15일 마무리 안내는 교통사고·다이어트를 제외한 일반한약에 사용해 주세요.'
+    : null;
+}
+
 export function herbalFollowupError(params: AnalyzeParams): string | null {
   if (!isHerbalFollowup(params)) return null;
-  if (params.selectedTreatments.some(t => t === '교통사고' || t === '다이어트')) {
-    return '첫 15일 마무리 안내는 교통사고·다이어트를 제외한 일반한약에 사용해 주세요.';
-  }
+  const treatmentError = herbalFollowupTreatmentError(params);
+  if (treatmentError) return treatmentError;
   const field = inspectPatientSymptomInput(params);
   const symptoms = resolvePatientSymptoms(params, field);
   const inputError = symptomInputError(field, symptoms);

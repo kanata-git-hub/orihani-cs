@@ -7,6 +7,8 @@ interface TagGroup {
 }
 
 interface TagSelectorProps {
+  id?: string;
+  error?: string | null;
   icon: LucideIcon;
   title: string;
   groups: TagGroup[];
@@ -38,13 +40,14 @@ const tones = {
 };
 
 export const TagSelector: React.FC<TagSelectorProps> = ({
-  icon: Icon, title, groups, tone, optionLabels = {}, selectedOptions, onToggle
+  id, error, icon: Icon, title, groups, tone, optionLabels = {}, selectedOptions, onToggle
 }) => {
   const headingId = useId();
   const colors = tones[tone];
 
   return (
-    <section aria-labelledby={headingId} className={`min-w-0 rounded-2xl sm:rounded-3xl border p-3 sm:p-5 ${colors.panel}`}>
+    <section id={id} tabIndex={error ? -1 : undefined} aria-labelledby={headingId} aria-describedby={error ? headingId + '-error' : undefined}
+      className={`min-w-0 scroll-mt-20 rounded-2xl sm:rounded-3xl p-3 sm:p-5 ${error ? 'border-2 border-red-600 bg-red-50' : 'border ' + colors.panel}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <h2 id={headingId} className={`flex items-center gap-2.5 text-xl font-bold ${colors.heading}`}>
           <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${colors.icon}`}>
@@ -54,6 +57,7 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
         </h2>
         <span className={`text-sm ${colors.heading}`}>중복 선택 가능</span>
       </div>
+      {error && <p id={headingId + '-error'} className="mb-3 font-bold text-red-800">{error}</p>}
       <div className="space-y-4 sm:space-y-3">
         {groups.map((group, index) => (
           <div key={group.title} role="group" aria-label={group.title}
