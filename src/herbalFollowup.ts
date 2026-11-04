@@ -23,7 +23,13 @@ export function herbalFollowupError(params: AnalyzeParams): string | null {
   return null;
 }
 
-export function buildHerbalFollowup(params: AnalyzeParams): string {
+export function isFixedEffectParagraph(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 650 && value === value.trim() &&
+    !/[\x00-\x1F\x7F\\#`*\u2028\u2029]/u.test(value) && !/(속마음|가이드|거절 시|핵심)\s*[:：]/u.test(value) &&
+    !/안녕하세요|냉장\s*보관|하루\s*(?:두|세|한|[0-9]+)\s*(?:번|회)|내원해\s*주/u.test(value);
+}
+
+export function buildHerbalFollowup(params: AnalyzeParams, effectParagraph = ''): string {
   const error = herbalFollowupError(params);
   if (error) throw new Error(error);
   const name = (params.patientName || '').trim().replace(/님$/, '').trim();
@@ -37,7 +43,7 @@ export function buildHerbalFollowup(params: AnalyzeParams): string {
 ###2###
 ${name}님, 안녕하세요. 오리한의원입니다.
 
-지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?${directions ? '\n\n' + directions : ''}
+지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?${effectParagraph ? '\n\n' + effectParagraph : ''}${directions ? '\n\n' + directions : ''}
 
 ${symptoms} 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 정도 치료를 이어가며 증상이 좋아지고 안정적으로 유지되는지 살펴보는 것이 좋습니다.
 

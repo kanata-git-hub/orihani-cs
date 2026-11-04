@@ -19,17 +19,19 @@ function provider(t: TestContext, verdict: unknown, options: { version?: string;
 const clean = { strategy: '속마음: 시간을 문의했습니다.\n\n가이드: 확인 후 답합니다.',
   responseDraft: '안녕하세요.', staffTip: '거절 시: 희망 시간을 여쭙습니다.\n\n핵심: 예약 확정 전입니다.' };
 const keep = { status: 'keep', strategy: '', responseDraft: '', staffTip: '' };
+const freeInput = { ...input, input: '자녀 김별하님의 눈 주위 가려움과 왼손 부기를 문의함.' };
 
 test('keeps all three acceptable sections and same-child address, normalizing the patient copy', async t => {
   const mock = provider(t, keep);
   for (const name of ['별하님', '김별하님']) {
     const draft = { ...clean, responseDraft: '김하민님, 안녕하세요.\\n\\n' + name + '의 눈가 가려움은 어떠세요?' };
-    assert.deepEqual(await reviewFree(input, draft), { ...draft, responseDraft: draft.responseDraft.replaceAll('\\n', '\n') });
+    assert.deepEqual(await reviewFree(freeInput, draft), { ...draft, responseDraft: draft.responseDraft.replaceAll('\\n', '\n') });
   }
   const request = mock.mock.calls[0].arguments;
   assert.equal(request[0], 'https://generativelanguage.googleapis.com/v1beta/models/gemini-4-argon:generateContent');
   const data = JSON.parse(String(request[1]?.body));
   assert.match(data.systemInstruction.parts[0].text, /별하님.*김별하님.*모두 허용/);
+  assert.ok(!data.generationConfig.responseSchema.required.includes('formulaEffects'));
   assert.equal(JSON.parse(data.contents[0].parts[0].text).draft.staffTip, clean.staffTip);
 });
 
@@ -50,18 +52,18 @@ test('one reviewer call corrects contradictory patient and staff directions toge
 test('staff-only correction preserves valid patient copy and does not reuse unreviewed staff advice', async t => {
   const wrong = { ...clean, staffTip: '핵심: 예약이 확정됐다고 안내한다.' };
   provider(t, { ...clean, status: 'revise' });
-  assert.deepEqual(await reviewFree(input, wrong), clean);
+  assert.deepEqual(await reviewFree(freeInput, wrong), clean);
 });
 
 test('fixed results account for every term and preserve both complete symptom descriptions', async t => {
   provider(t, { items: [{ index: 0, kind: 'symptom' }, { index: 1, kind: 'prescription' }, { index: 2, kind: 'symptom' }] });
   const symptoms = '눈 주위 가려움, 온청음, 지속되는 왼손 부기';
-  assert.deepEqual(await reviewFixedSymptoms({ ...input, symptoms }, '승인 문장'), ['눈 주위 가려움', '지속되는 왼손 부기']);
+  assert.deepEqual(await reviewFixedSymptoms({ ...input, input: '', symptoms }, '승인 문장'), { terms: ['눈 주위 가려움', '지속되는 왼손 부기'], effectParagraph: '' });
 });
 
 test('fixed review accepts positively identified custom prescriptions without inventing a diagnosis', async t => {
   provider(t, { items: [{ index: 0, kind: 'prescription' }] });
-  assert.deepEqual(await reviewFixedSymptoms({ ...input, symptoms: '원내Q27', input: '처방명: 원내Q27' }, '승인 문장'), []);
+  assert.deepEqual(await reviewFixedSymptoms({ ...input, symptoms: '원내Q27', input: '', prescriptionReferences: ['원내Q27'] }, '승인 문장'), { terms: [], effectParagraph: '' });
 });
 
 test('fixed review fails closed when a real symptom is omitted, duplicated, reordered, or undisclosed', async t => {
@@ -90,6 +92,36 @@ test('fixed review fails closed when a real symptom is omitted, duplicated, reor
   });
 });
 
+test('fixed follow-up can add only a reviewed name-free effect while retaining approved copy', async t => {
+  const form = { ...input, input:'이번에는 오령산을 드립니다.', symptoms:'발목 붓기' };
+  const effectParagraph = '수분 흐름을 조절해 발목의 붓기가 가라앉도록 돕습니다.';
+  const items = [{ index:0, kind:'symptom' }];
+  const formulaEffects = [{ index:0, kind:'explained', action:'수분 흐름을 조절해', patientQuote:effectParagraph, sourceQuote:'' }];
+  await t.test('effect and symptoms are reviewed together once', async st => {
+    const mock = provider(st, { items, formulaEffects, effectParagraph });
+    assert.deepEqual(await reviewFixedSymptoms(form, '승인된 고정 본문'), { terms:['발목 붓기'], effectParagraph });
+    assert.equal(mock.mock.callCount(), 1);
+    const request = JSON.parse(String(mock.mock.calls[0].arguments[1]?.body));
+    assert.deepEqual(JSON.parse(request.contents[0].parts[0].text).effectPrescriptionNames, ['오령산']);
+  });
+  for (const [label, paragraph] of [
+    ['missing effect', ''], ['unreviewed extra', effectParagraph + ' 매일 내원하세요.'],
+    ['private name', '오령산은 ' + effectParagraph], ['internal text', '가이드: '+effectParagraph],
+    ['extra dosing', effectParagraph + ' 하루 두 번 복용하세요.'],
+  ]) {
+    await t.test(label, async st => {
+      provider(st, { items, formulaEffects, effectParagraph:paragraph });
+      await assert.rejects(reviewFixedSymptoms(form, '고정 본문'), { status:503 });
+    });
+  }
+  await t.test('private unidentified formula cannot introduce an unsupported effect', async st => {
+    const unknown = { ...form, input:'처방명: 원내Q27' };
+    const formulaEffects = [{ index:0, kind:'unidentified', patientQuote:'', action:'', sourceQuote:'처방명: 원내Q27' }];
+    provider(st, { items, formulaEffects, effectParagraph:'' });
+    assert.deepEqual(await reviewFixedSymptoms(unknown, '고정 본문'), { terms:['발목 붓기'], effectParagraph:'' });
+  });
+});
+
 test('incomplete verdicts, private content, and staff text in the patient copy fail closed', async t => {
   for (const [name, verdict, options] of [
     ['new patient text on keep', { ...keep, responseDraft: '모르는 수신자' }, {}],
@@ -106,7 +138,7 @@ test('incomplete verdicts, private content, and staff text in the patient copy f
   ] as const) {
     await t.test(name, async st => {
       provider(st, verdict, options);
-      await assert.rejects(reviewFree(input, clean), { status: 503 });
+      await assert.rejects(reviewFree(freeInput, clean), { status: 503 });
     });
   }
 });
@@ -114,7 +146,7 @@ test('incomplete verdicts, private content, and staff text in the patient copy f
 test('network failures never disclose credentials or patient context', async t => {
   const mock = provider(t, {});
   mock.mock.mockImplementationOnce(async () => { throw new Error('test-key secret visit'); });
-  await assert.rejects(reviewFree(input, clean), (error: Error & { status?: number }) => {
+  await assert.rejects(reviewFree(freeInput, clean), (error: Error & { status?: number }) => {
     assert.equal(error.status, 503);
     assert.doesNotMatch(error.message, /test-key|secret|김하민/);
     return true;
@@ -125,7 +157,79 @@ test('server-separated private prescriptions cannot appear in any reviewed secti
   for (const field of ['strategy','responseDraft','staffTip'] as const) {
     await t.test(field, async st => {
       provider(st, { ...clean, status: 'revise', [field]: '원내Q27 투약이라고 알리세요.' });
-      await assert.rejects(reviewFree({ ...input, prescriptionReferences: ['원내Q27'] }, clean), { status: 503 });
+      await assert.rejects(reviewFree({ ...freeInput, prescriptionReferences: ['원내Q27'] }, clean), { status: 503 });
     });
   }
+});
+
+test('free review replaces a list of symptoms with the roles of both current formulas in the patient message', async t => {
+  const form = { ...freeInput, patientName: '가상환자', symptoms: '손 부종, 피부 발적, 불면',
+    input: '이번에도 같은 약(오령산+온청음)을 드리니 잘 드십시오.', selectedSituations: [], selectedTreatments: [] };
+  const generic = '부종과 불면, 피부 불편을 함께 개선할 수 있도록 같은 한약으로 준비해 드렸습니다.';
+  const fluid = '몸의 수분 균형을 조절해 손의 붓기를 덜어주도록 했습니다.';
+  const redness = '피부의 열을 가라앉혀 붉은 기운을 줄이는 데도 중점을 두었습니다.';
+  const original = { ...clean, responseDraft: generic };
+  const revised = { ...clean, responseDraft: fluid + ' ' + redness };
+  const effects = [
+    { index: 0, kind: 'explained', action: '수분 균형을 조절해', patientQuote: fluid, sourceQuote: '' },
+    { index: 1, kind: 'explained', action: '피부의 열을 가라앉혀', patientQuote: redness, sourceQuote: '' },
+  ];
+  await t.test('one call revises the patient copy and accounts for each component without naming it', async st => {
+    const mock = provider(st, { status: 'revise', ...revised, formulaEffects: effects });
+    const result = await reviewFree(form, original);
+    assert.deepEqual(result, revised);
+    assert.doesNotMatch(result.responseDraft, /오령산|온청음|불면/);
+    assert.equal(mock.mock.callCount(), 1);
+    const body = JSON.parse(String(mock.mock.calls[0].arguments[1]?.body));
+    assert.ok(body.generationConfig.responseSchema.required.includes('formulaEffects'));
+    const request = JSON.parse(body.contents[0].parts[0].text);
+    assert.deepEqual(request.effectPrescriptionNames, ['오령산', '온청음']);
+  });
+  const vagueAction = '부종과 불면, 피부 불편을 함께 개선';
+  for (const [name, draft, verdict] of [
+    ['silent keep', original, keep],
+    ['missing second effect', revised, { ...keep, formulaEffects: effects.slice(0, 1) }],
+    ['misordered component indexes', revised, { ...keep, formulaEffects: [...effects].reverse() }],
+    ['staff-only evidence', { ...original, staffTip: fluid + ' ' + redness }, { ...keep, formulaEffects: effects }],
+    ['generic symptom recap as one role', { ...clean, responseDraft: generic + ' ' + redness }, { ...keep, formulaEffects: [
+      { ...effects[0], patientQuote: generic, action: vagueAction }, effects[1]] }],
+    ['same action reused for both roles', revised, { ...keep, formulaEffects: [effects[0], { ...effects[0], index: 1 }] }],
+    ['explanation names the formula', { ...revised, responseDraft: '오령산은 ' + revised.responseDraft }, { ...keep, formulaEffects: effects }],
+    ['current known formula treated as an unknown', revised, { ...keep, formulaEffects: [
+      { ...effects[0], kind: 'unidentified', action: '', patientQuote: '', sourceQuote: '같은 약(오령산+온청음)' }, effects[1]] }],
+  ] as const) {
+    await t.test(name, async st => {
+      provider(st, verdict);
+      await assert.rejects(reviewFree(form, draft), { status: 503 });
+    });
+  }
+});
+
+test('free review can omit a previous prescription and an unidentified private formula', async t => {
+  for (const [kind, note] of [
+    ['background', '예전에만 복용한 오령산은 이번 처방에서 제외했습니다.'],
+    ['unidentified', '처방명: 원내Q27'],
+  ] as const) {
+    await t.test(kind, async st => {
+      provider(st, { ...keep, formulaEffects: [{ index: 0, kind, action: '', patientQuote: '', sourceQuote: note }] });
+      const result = await reviewFree({ ...freeInput, input: note }, clean);
+      assert.deepEqual(result, clean);
+      assert.doesNotMatch(result.responseDraft, /오령산|원내Q27/);
+    });
+  }
+});
+
+test('a private formula needs a staff-supplied action to justify an explanation', async t => {
+  const action = '수분 흐름을 조절해';
+  const patientQuote = action + ' 붓기를 덜도록 돕습니다.';
+  const draft = { ...clean, responseDraft: patientQuote };
+  const input = { ...freeInput, input: '이번 약(원내새봄탕)을 드립니다.', direction: '' };
+  await t.test('reject an invented action', async st => {
+    provider(st, { ...keep, formulaEffects: [{ index: 0, kind: 'explained', action, patientQuote, sourceQuote: action }] });
+    await assert.rejects(reviewFree(input, draft), { status: 503 });
+  });
+  await t.test('allow the role specified in additional instructions', async st => {
+    provider(st, { ...keep, formulaEffects: [{ index: 0, kind: 'explained', action, patientQuote, sourceQuote: patientQuote }] });
+    assert.deepEqual(await reviewFree({ ...input, direction: patientQuote }, draft), draft);
+  });
 });

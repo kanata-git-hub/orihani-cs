@@ -1,0 +1,23 @@
+name: Check prescription effects in synthetic messages
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/rx-effect-smoke.yml
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: cs-rx-effects-20261104-v1
+  cancel-in-progress: false
+jobs:
+  trial:
+    if: github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read two reviewed synthetic patient messages
+        run: node tests/run-rx-effect-smoke.mjs

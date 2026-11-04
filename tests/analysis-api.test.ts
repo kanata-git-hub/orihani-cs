@@ -17,10 +17,17 @@ test('authenticated generation returns only reviewed free messages and canonical
     dietMealAdvice + ' 오늘 바로 드시지 않는 약은 냉장 보관해 주세요.';
   const obsoleteDietLine = '다이어트 한약은 하루 2번, 오전 9~11시와 오후 4~6시쯤 복용하시고 냉장 보관해 주세요.';
   const appointment = '오후 4시 예약을 확인했습니다.';
+  const fixedEffect = '몸에 불필요한 수분이 빠져나가도록 도와 붓기를 줄이는 것이 이번 한약의 목적입니다.';
   const encode = (s: string) => '###1###\n내부 안내\n###2###\n' + s + '\n###3###\n내부 팁';
   app.use('/api/generate-analysis', analysisEndpoint(async (instruction, prompt) => {
     calls++;
     seenRules = instruction;
+    if (instruction.includes('효과 설명 한 문단만')) {
+      const basis = JSON.parse(prompt);
+      assert.deepEqual(basis.formulaNames, ['오령산']);
+      assert.equal(basis.patientName, undefined);
+      return '발목의 붓기를 개선하도록 준비했습니다.';
+    }
     if (prompt === sensitive) throw Object.assign(new Error(sensitive), { status: 429 });
     if (prompt === 'malformed') return '문자와 가이드가 구분되지 않습니다.';
     return encode(prompt);
@@ -43,12 +50,16 @@ test('authenticated generation returns only reviewed free messages and canonical
       if (draft.responseDraft.includes('온청음')) return { strategy:'경과를 확인합니다.', responseDraft:'가상님, 안녕하세요.\\n\\n눈 가려움은 어떠신가요?', staffTip:'증상의 변화만 전달해 주세요.' };
       return draft;
     },
-    async reviewFixedSymptoms(context, _draft) {
+    async reviewFixedSymptoms(context, _draft, effectDraft) {
       fixedChecks++;
-      if (context.symptoms === '미확인입력') return [];
-      if (context.symptoms === '피부 붉어짐, 소화불량') return ['피부 붉어짐'];
+      if (context.symptoms === '미확인입력') return { terms: [], effectParagraph: '' };
+      if (context.symptoms === '피부 붉어짐, 소화불량') return { terms: ['피부 붉어짐'], effectParagraph: '' };
+      if (context.symptoms === '발목 붓기') {
+        assert.equal(effectDraft, '발목의 붓기를 개선하도록 준비했습니다.');
+        return { terms: ['발목 붓기'], effectParagraph: fixedEffect };
+      }
       assert.equal(context.symptoms, '눈 주위 가려움, 피로');
-      return ['눈 주위 가려움', '피로'];
+      return { terms: ['눈 주위 가려움', '피로'], effectParagraph: '' };
     }
   }));
   const server = app.listen(0, '127.0.0.1');
@@ -86,6 +97,15 @@ test('authenticated generation returns only reviewed free messages and canonical
     assert.equal(blocked.code, 'PATIENT_INPUT');
     assert.equal(blocked.text, undefined);
     assert.deepEqual([calls,freeChecks,fixedChecks],[0,0,3]);
+
+    const withFormula = { ...context, symptoms:'발목 붓기', input:'이번 한약은 오령산입니다.', selectedTreatments:['한약'] };
+    const namedFixed = await request('ignored', {patientContext: withFormula});
+    assert.equal(namedFixed.status, 200);
+    const namedResult = await namedFixed.json();
+    assert.equal(namedResult.effectParagraph, fixedEffect);
+    assert.equal(namedResult.text.replace('\n\n' + fixedEffect, ''), buildHerbalFollowup(withFormula));
+    assert.doesNotMatch(namedResult.text, /오령산/);
+    assert.deepEqual([calls,freeChecks,fixedChecks],[1,0,4]);
 
     const reviewed = await request('온청음 증상', {patientContext: {...context, symptoms:'눈 주위 가려움, 온청음',
       selectedTreatments:['피로', '한약'], selectedSituations:['원장','한약 복용/경과'], clinicReference:'FAKE_REVIEW_POLICY'}});

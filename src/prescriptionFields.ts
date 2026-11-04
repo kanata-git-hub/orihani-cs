@@ -21,6 +21,8 @@ const formulaNames = `
 
 const label = /(?:처방명|한약명|약명|처방|처방약|복용약)\s*[:：=]\s*/u;
 const privateFormula = /^(?:(?:가미|가감|원내|자체)[가-힣A-Za-z0-9-]{1,24}(?:탕|산|환|음|단|고|방)|[\p{Script=Han}]{2,20}[湯汤丸散方])$/u;
+const medicineSlot = /(?:^|[^\p{L}\p{N}_])(?:한약|일반한약|탕약|처방약|복용약|약)\s*[(（]([^()（）\n]{1,240})[)）]/gu;
+const localMedicineCode = /^[가-힣]{2,16}[A-Za-z]\d[A-Za-z0-9-]{0,12}$/u;
 const compact = (value: string) => value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]+/gu, '');
 const cleanTerm = (value: string) => value.trim().replace(/^[('"“‘「『\[]+|[)'"”’」』\]]+$/gu, '').trim();
 const generic = new Set(['한약', '탕약', '약', '미정', '미입력', '미확인', '없음', '미기재', '미지정', '확인', '보류', '변경', '유지', '예정', '기존', '이전', '신규', '조정', '검토', '상담', '없습니다', '없어요']);
@@ -38,7 +40,33 @@ export function getReferencedPrescriptions(...fields: string[]): string[] {
   for (const match of text.matchAll(new RegExp(label.source + '[“"‘(「『]?([가-힣A-Za-z0-9_\u3400-\u9FFF-]{2,40})', 'gu'))) {
     if (!generic.has(match[1])) names.push(match[1]);
   }
+  for (const slot of text.matchAll(medicineSlot)) {
+    for (const raw of slot[1].split(/[+＋,，/]/u)) {
+      const name = cleanTerm(raw);
+      if (privateFormula.test(name) || localMedicineCode.test(name)) names.push(name);
+    }
+  }
   return [...new Set(names)];
+}
+
+export function isKnownPrescriptionName(name: string): boolean {
+  return formulaNames.includes(compact(name));
+}
+
+export function getEffectPrescriptionNames(message: string, direction: string): string[] {
+  const result = new Set<string>();
+  for (const field of [message, direction]) {
+    const names = getReferencedPrescriptions(field).map(name => {
+      const bare = name.replace(/(?:입니다|인데요|으로|을|를|은|는|과|와)$/u, '');
+      return isKnownPrescriptionName(bare) ? bare : name;
+    });
+    if (!names.length) continue;
+    // A named compound is one formula. An explicitly repeated standalone component still counts.
+    // The vocabulary and label parser supply only letters, digits, underscores and hyphens.
+    const pattern = new RegExp(names.sort((a, b) => b.length - a.length).map(compact).join('|'), 'gu');
+    for (const match of compact(field).matchAll(pattern)) result.add(match[0]);
+  }
+  return [...result];
 }
 
 export function findDisclosedPrescription(text: string, inputNames: string[] = []): string | null {
