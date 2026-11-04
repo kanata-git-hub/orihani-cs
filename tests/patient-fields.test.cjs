@@ -23,8 +23,9 @@ const rx = loadModule('src/prescriptionFields.ts');
 const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
 const directions = loadModule('src/herbalDirections.ts');
 const followup = loadModule('src/herbalFollowup.ts', { './patientSymptoms.ts': symptoms, './herbalDirections.ts': directions });
+const reviews = loadModule('src/publicReview.ts');
 const constants = loadModule('src/constants/index.ts', {
-  '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms, '../herbalDirections.ts': directions
+  '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms, '../herbalDirections.ts': directions, '../publicReview.ts': reviews
 });
 const format = loadModule('src/patientMessageText.ts');
 
@@ -32,6 +33,7 @@ function loadService(output) {
   let submitted;
   let calls = 0;
   const service = loadModule('src/services/geminiService.ts', {
+    '../publicReview': reviews,
     '../patientSymptoms': symptoms,
     '../prescriptionFields': rx,
     '../patientMessageText': format,
@@ -71,6 +73,23 @@ test('blank common fields preserve the existing prompt without extra labels', as
 선택된 치료: 침
 응대 상황: 신환 상담/문의
 추가 요청: 없음`);
+});
+
+test('public review submissions use the visitor text and tone without private patient context', async () => {
+  const service = loadService();
+  const form = { ...params, patientName: '가상환자', symptoms: '오령산 복용 후 구역감',
+    selectedTreatments: ['한약', '교통사고'], selectedSituations: ['비용/패키지 상담', '리뷰 답변'],
+    input: '직원분이 친절하게 설명해 주셨어요.', direction: '짧고 담백하게' };
+  await service.generate(form);
+  const data = service.request();
+  assert.deepEqual(data.patientContext, { patientName:'', symptoms:'', selectedTreatments:[], selectedSituations:['리뷰 답변'],
+    input:form.input, direction:form.direction });
+  assert.equal(data.prompt, reviews.publicReviewPrompt(form.input, form.direction));
+  assert.doesNotMatch(JSON.stringify(data), /가상환자|구역감|오령산|비용\/패키지 상담/);
+  assert.equal(data.prescriptionNames, undefined);
+  await assert.rejects(service.generate({ ...form, input:'  ' }), /원문|별점/);
+  await assert.rejects(service.generate({ ...form, selectedSituations:['리뷰 답변', followup.HERBAL_FOLLOWUP_SITUATION] }), /하나만/);
+  assert.equal(service.calls(), 1);
 });
 
 test('first 15-day situation always selects the original fixed text, even in a restored draft', async () => {

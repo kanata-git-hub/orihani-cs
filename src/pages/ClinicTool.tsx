@@ -13,7 +13,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { isHerbalFollowup, herbalFollowupError } from '../herbalFollowup';
+import { HERBAL_FOLLOWUP_SITUATION, isHerbalFollowup, herbalFollowupError } from '../herbalFollowup';
+import { isPublicReview, publicReviewContext, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
 
@@ -48,13 +49,15 @@ export function ClinicTool() {
   const params = { patientName, symptoms, input, direction, selectedTreatments, selectedSituations };
   const symptomField = inspectPatientSymptomInput(params);
   const effectiveSymptoms = resolvePatientSymptoms(params, symptomField);
-  const symptomError = symptomInputError(symptomField, effectiveSymptoms);
+  const publicReply = isPublicReview(selectedSituations);
+  const symptomError = publicReply ? null : symptomInputError(symptomField, effectiveSymptoms);
   const symptomChoices = selectedSymptomOptions(selectedTreatments);
   const showResolvedSymptoms = !symptomError && Boolean(effectiveSymptoms) &&
     (symptomChoices.length > 0 || symptomField.prescriptions.length > 0);
   const isFollowup = isHerbalFollowup(params);
   const followupError = herbalFollowupError(params);
-  const canSubmit = !symptomError && (isFollowup ? !followupError : Boolean(input.trim()));
+  const conflictingModes = publicReply && isFollowup;
+  const canSubmit = !conflictingModes && !symptomError && (isFollowup ? !followupError : Boolean(input.trim()));
   const formEmpty = !patientName && !symptoms && !input && !direction && !selectedTreatments.length && !selectedSituations.length;
   const cached = user && formEmpty && savedResult?.reviewVersion === MESSAGE_REVIEW_VERSION && savedResult.owner === user.uid ? savedResult : null;
   const patientText = typeof cached?.responseDraft === 'string' ? normalizePatientMessage(cached.responseDraft) : '';
@@ -73,7 +76,11 @@ export function ClinicTool() {
   };
   const toggleSituation = (s: string) => {
     invalidateResult();
-    setSelectedSituations(prev => prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s]);
+    setSelectedSituations(prev => {
+      if (prev.includes(s)) return prev.filter(i => i !== s);
+      const incompatible = s === '리뷰 답변' ? HERBAL_FOLLOWUP_SITUATION : s === HERBAL_FOLLOWUP_SITUATION ? '리뷰 답변' : undefined;
+      return [...prev.filter(i => i !== incompatible), s];
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -97,12 +104,7 @@ export function ClinicTool() {
       try {
         await addDoc(collection(db, 'analyses'), {
           userId: user.uid,
-          patientName,
-          symptoms: reviewed.symptoms,
-          input,
-          direction,
-          selectedTreatments,
-          selectedSituations,
+          ...(publicReply ? publicReviewContext(input, direction) : { ...params, symptoms: reviewed.symptoms }),
           result: newResult,
           createdAt: serverTimestamp()
         });
@@ -182,6 +184,7 @@ export function ClinicTool() {
               입력 내용 전체 지우기
             </button>
           </div>
+          {!publicReply && <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label htmlFor="patient-name" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
@@ -219,13 +222,15 @@ export function ClinicTool() {
           <p id="patient-fields-help" className="text-base sm:text-sm text-[#552c24]/85 sm:text-[#552c24]/70 leading-7 sm:leading-relaxed">
             환자가 호소한 질환·증상을 입력해 주세요. 소화불량·피로는 아래 치료 종류에서 선택할 수 있습니다.
           </p>
+          </>}
 
           <div className="space-y-4">
-            <TagSelector icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />
+            {!publicReply && <TagSelector icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />}
             <TagSelector icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ 원장: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
           </div>
 
-          {isFollowup && (
+          {conflictingModes && <p className="text-base font-semibold text-red-700" role="alert">{REVIEW_FOLLOWUP_CONFLICT}</p>}
+          {isFollowup && !publicReply && (
             <div className="rounded-2xl border border-[#ffcd4a] bg-[#ffcd4a]/10 p-4 text-base sm:text-sm leading-7 sm:leading-relaxed" role="status">
               첫 15일 안내에서는 고정 문구를 사용합니다. 환자 이름과 질환·증상만 반영하며 한약 버튼은 따로 누를 필요가 없습니다. 교통사고·다이어트는 제외합니다.
               {followupError && !symptomError && <p className="mt-1 font-bold">{followupError}</p>}
@@ -234,11 +239,11 @@ export function ClinicTool() {
 
           <div className="space-y-2">
             <label htmlFor="patient-situation" className="text-lg sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
-              <MessageSquare size={20} className="shrink-0" /> 환자 메시지 또는 상황{isFollowup ? " (선택)" : ""}
+              <MessageSquare size={20} className="shrink-0" /> {publicReply ? "방문자가 남긴 공개 리뷰" : "환자 메시지 또는 상황" + (isFollowup ? " (선택)" : "")}
             </label>
             <textarea id="patient-situation"
               value={input} onChange={(e) => setInput(e.target.value)}
-              placeholder={isFollowup ? "추가 상황 메모 (선택) — 고정 안내 문자에는 이름과 질환·증상만 반영합니다." : "환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."}
+              placeholder={publicReply ? "리뷰 원문을 붙여넣어 주세요. 별점만 있는 후기는 ‘별점 5점’처럼 입력해 주세요." : isFollowup ? "추가 상황 메모 (선택) — 고정 안내 문자에는 이름과 질환·증상만 반영합니다." : "환자의 카톡 메시지를 붙여넣거나, 현재 상황을 설명해 주세요..."}
               className="w-full h-40 sm:h-48 p-4 sm:p-6 bg-white border border-[#552c24]/20 rounded-2xl sm:rounded-3xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all resize-y text-lg sm:text-2xl leading-[1.8] sm:leading-relaxed shadow-sm font-medium"
               required={!isFollowup}
             />
@@ -246,11 +251,11 @@ export function ClinicTool() {
 
           <div className="space-y-2">
             <label htmlFor="response-direction" className="text-lg sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
-              <PlusCircle size={20} /> 특별히 원하는 방향 (선택)
+              <PlusCircle size={20} /> {publicReply ? "답글의 말투나 길이 (선택)" : "특별히 원하는 방향 (선택)"}
             </label>
             <input
               id="response-direction" type="text" value={direction} onChange={(e) => setDirection(e.target.value)}
-              placeholder={isFollowup ? "고정 안내 문자에는 반영되지 않습니다." : "예: 방문 유도, 부드러운 거절, 비용 안내 등"}
+              placeholder={publicReply ? "예: 두 문장으로 짧고 따뜻하게" : isFollowup ? "고정 안내 문자에는 반영되지 않습니다." : "예: 방문 유도, 부드러운 거절, 비용 안내 등"}
               className="w-full p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none transition-all shadow-sm text-lg sm:text-xl font-medium"
             />
           </div>
@@ -260,7 +265,7 @@ export function ClinicTool() {
               isLoading || !canSubmit ? 'bg-[#552c24]/10 text-[#552c24]/40 cursor-not-allowed' : 'bg-[#ffcd4a] text-[#552c24] hover:bg-[#ffcd4a]/90 active:scale-[0.98] shadow-[#ffcd4a]/20'
             }`}
           >
-            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />문안 생성 및 검수 중...</>) : (<><Send size={20} />{isFollowup ? "안내 문자 만들기" : "분석 시작하기"}</>)}
+            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />문안 생성 및 검수 중...</>) : (<><Send size={20} />{publicReply ? "공개 리뷰 답글 만들기" : isFollowup ? "안내 문자 만들기" : "분석 시작하기"}</>)}
           </button>
         </form>
       </section>

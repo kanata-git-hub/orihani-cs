@@ -5,11 +5,13 @@ import { analysisEndpoint } from '../analysisApi.ts';
 import { buildHerbalFollowup, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
 import { MESSAGE_REVIEW_VERSION, parseAnalysisResult } from '../src/patientMessageText.ts';
 import { DIET_HERBAL_DIRECTIONS, HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
+import { PUBLIC_REVIEW_GREETING } from '../src/publicReview.ts';
 
 test('authenticated generation returns only reviewed free messages and canonical fixed messages', async () => {
   const app = express();
   let calls = 0, freeChecks = 0, fixedChecks = 0;
   let seenDraft = '', seenRules = '', seenReference = '', seenSymptoms = '';
+  let seenPrompt = '';
   let seenTreatments: string[] = [], seenPrescriptions: string[] = [];
   const sensitive = 'synthetic-private-record';
   const dietMealAdvice = '다이어트약은 식전에 드시는 것이 좋지만, 약효가 일정하게 유지되는 것이 더 중요하기 때문에 식후에 드셔도 됩니다.';
@@ -22,6 +24,7 @@ test('authenticated generation returns only reviewed free messages and canonical
   app.use('/api/generate-analysis', analysisEndpoint(async (instruction, prompt) => {
     calls++;
     seenRules = instruction;
+    seenPrompt = prompt;
     if (instruction.includes('효과 설명 한 문단만')) {
       const basis = JSON.parse(prompt);
       assert.deepEqual(basis.formulaNames, ['오령산']);
@@ -41,6 +44,13 @@ test('authenticated generation returns only reviewed free messages and canonical
       seenSymptoms = context.symptoms;
       seenTreatments = context.selectedTreatments;
       seenPrescriptions = context.prescriptionReferences ?? [];
+      if (context.selectedSituations.includes('리뷰 답변')) {
+        assert.deepEqual(context.selectedSituations, ['리뷰 답변']);
+        assert.equal(context.patientName, '');
+        assert.equal(context.symptoms, '');
+        assert.deepEqual(context.selectedTreatments, []);
+        return { ...draft, responseDraft: PUBLIC_REVIEW_GREETING + '\n설명을 듣고 궁금한 점이 풀리셨다니 다행입니다.' };
+      }
       if (context.direction === 'fixture: reviewed diet') {
         return { ...draft, responseDraft: [appointment, HERBAL_DIRECTIONS, DIET_HERBAL_DIRECTIONS,
           obsoleteDietLine, HERBAL_DIRECTIONS, DIET_HERBAL_DIRECTIONS].join('\n\n') };
@@ -106,6 +116,29 @@ test('authenticated generation returns only reviewed free messages and canonical
     assert.equal(namedResult.text.replace('\n\n' + fixedEffect, ''), buildHerbalFollowup(withFormula));
     assert.doesNotMatch(namedResult.text, /오령산/);
     assert.deepEqual([calls,freeChecks,fixedChecks],[1,0,4]);
+
+    const publicContext = { ...context, patientName:'직원전용이름', symptoms:'비공개소견, 원내전용방',
+      selectedTreatments:['다이어트','교통사고'], selectedSituations:['리뷰 답변','원장','비용/패키지 상담'],
+      input:'설명을 듣고 궁금한 점이 풀렸어요.', direction:'짧게' };
+    const publicResponse = await request('구버전 폼이 보낸 개인문자와 진료 메모', {patientContext: publicContext});
+    assert.equal(publicResponse.status, 200);
+    const publicResult = await publicResponse.json();
+    assert.equal(publicResult.symptoms, '');
+    const publicCopy = parseAnalysisResult(publicResult.text).responseDraft;
+    assert.ok(publicCopy.startsWith(PUBLIC_REVIEW_GREETING));
+    assert.match(seenPrompt, /궁금한 점이 풀렸어요/);
+    assert.match(seenPrompt, /짧게/);
+    for (const value of [seenPrompt, seenRules, seenReference, publicCopy]) {
+      assert.doesNotMatch(value, /직원전용이름|비공개소견|구버전 폼|6시간 이상 간격|하루 두 번 식후/);
+    }
+    const beforePublicErrors = calls + freeChecks + fixedChecks;
+    for (const invalid of [{ ...publicContext, input:' ' },
+      { ...publicContext, selectedSituations:['리뷰 답변', HERBAL_FOLLOWUP_SITUATION] }]) {
+      const response = await request('ignored', { patientContext: invalid });
+      assert.equal(response.status, 422);
+      assert.equal((await response.json()).code, 'PATIENT_INPUT');
+    }
+    assert.equal(calls + freeChecks + fixedChecks, beforePublicErrors);
 
     const reviewed = await request('온청음 증상', {patientContext: {...context, symptoms:'눈 주위 가려움, 온청음',
       selectedTreatments:['피로', '한약'], selectedSituations:['원장','한약 복용/경과'], clinicReference:'FAKE_REVIEW_POLICY'}});
