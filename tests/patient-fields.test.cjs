@@ -77,19 +77,41 @@ test('blank common fields preserve the existing prompt without extra labels', as
 
 test('public review submissions use the visitor text and tone without private patient context', async () => {
   const service = loadService();
-  const form = { ...params, patientName: '가상환자', symptoms: '오령산 복용 후 구역감',
+  const form = { ...params, patientName: '가상환자', symptoms: '오령산 복용 후 구역감', prescriptionName: '원내별도방 + 온청음',
     selectedTreatments: ['한약', '교통사고'], selectedSituations: ['비용/패키지 상담', '리뷰 답변'],
     input: '직원분이 친절하게 설명해 주셨어요.', direction: '짧고 담백하게' };
   await service.generate(form);
   const data = service.request();
-  assert.deepEqual(data.patientContext, { patientName:'', symptoms:'', selectedTreatments:[], selectedSituations:['리뷰 답변'],
+  assert.deepEqual(data.patientContext, { patientName:'', symptoms:'', prescriptionName:'', selectedTreatments:[], selectedSituations:['리뷰 답변'],
     input:form.input, direction:form.direction });
   assert.equal(data.prompt, reviews.publicReviewPrompt(form.input, form.direction));
-  assert.doesNotMatch(JSON.stringify(data), /가상환자|구역감|오령산|비용\/패키지 상담/);
+  assert.doesNotMatch(JSON.stringify(data), /가상환자|구역감|오령산|원내별도방|온청음|비용\/패키지 상담/);
   assert.equal(data.prescriptionNames, undefined);
   await assert.rejects(service.generate({ ...form, input:'  ' }), /원문|별점/);
   await assert.rejects(service.generate({ ...form, selectedSituations:['리뷰 답변', followup.HERBAL_FOLLOWUP_SITUATION] }), /하나만/);
   assert.equal(service.calls(), 1);
+});
+
+test('dedicated prescription field reaches generation and guards private formula names', async () => {
+  const service = loadService();
+  const form = { ...params, prescriptionName: '원내 A1 + 온청음', symptoms: '원내 A1, 피부 가려움' };
+  await service.generate(form);
+  const request = service.request();
+  assert.equal(request.patientContext.prescriptionName, form.prescriptionName);
+  assert.match(request.prompt, /질환·증상: 피부 가려움/);
+  assert.ok(request.prescriptionNames.some(name => name.replace(/\s/g, '') === '원내A1'));
+  await assert.rejects(loadService('원내 A1로 안내합니다.').generate(form), /처방명이 포함/);
+});
+
+test('first 15-day message can explain a prescription entered only in the dedicated field', async () => {
+  const fields = { ...params, patientName: '가상', symptoms: '발목 부종', input: '', prescriptionName: '오령산',
+    selectedSituations: [followup.HERBAL_FOLLOWUP_SITUATION] };
+  const effect = '몸속에 남은 수분이 빠져나가도록 도와 발목의 붓기를 줄이기 위한 한약입니다.';
+  const reviewed = { reviewed: true, reviewVersion: format.MESSAGE_REVIEW_VERSION, symptoms: fields.symptoms,
+    effectParagraph: effect, text: followup.buildHerbalFollowup(fields, effect) };
+  assert.equal(await loadService(reviewed).generate(fields), reviewed.text);
+  await assert.rejects(loadService(reviewed).generate({ ...fields, prescriptionName: '' }), /검수가 완료되지/);
+  await assert.rejects(loadService({ ...reviewed, reviewVersion: 5 }).generate(fields), /검수가 완료되지/);
 });
 
 test('first 15-day situation always selects the original fixed text, even in a restored draft', async () => {

@@ -37,6 +37,7 @@ export function ClinicTool() {
   const { user } = useAuth();
   const [patientName, setPatientName] = useLocalStorage<string>('app_patient_name', '');
   const [symptoms, setSymptoms] = useLocalStorage<string>('app_symptoms', '');
+  const [prescriptionName, setPrescriptionName] = useLocalStorage<string>('app_prescription_name', '');
   const [input, setInput] = useLocalStorage<string>('app_input', "");
   const [direction, setDirection] = useLocalStorage<string>('app_direction', "");
   const [selectedTreatments, setSelectedTreatments] = useLocalStorage<string[]>('app_treatments', []);
@@ -50,7 +51,7 @@ export function ClinicTool() {
   const [error, setError] = useState<string | null>(null);
   
   const resultRef = useRef<HTMLDivElement>(null);
-  const params = { patientName, symptoms, input, direction, selectedTreatments, selectedSituations };
+  const params = { patientName, symptoms, prescriptionName, input, direction, selectedTreatments, selectedSituations };
   const symptomField = inspectPatientSymptomInput(params);
   const effectiveSymptoms = resolvePatientSymptoms(params, symptomField);
   const publicReply = isPublicReview(selectedSituations);
@@ -74,7 +75,7 @@ export function ClinicTool() {
     { id: 'patient-situation', label: publicReply ? '공개 리뷰' : '환자 메시지 또는 상황', problem: messageIssue },
   ].filter(field => field.problem);
   const canSubmit = issues.length === 0;
-  const formEmpty = !patientName && !symptoms && !input && !direction && !selectedTreatments.length && !selectedSituations.length;
+  const formEmpty = !patientName && !symptoms && !prescriptionName && !input && !direction && !selectedTreatments.length && !selectedSituations.length;
   const cached = user && formEmpty && savedResult?.reviewVersion === MESSAGE_REVIEW_VERSION && savedResult.owner === user.uid ? savedResult : null;
   const patientText = typeof cached?.responseDraft === 'string' ? normalizePatientMessage(cached.responseDraft) : '';
   const result = patientText.trim() ? cached : null;
@@ -162,6 +163,7 @@ export function ClinicTool() {
   const clearTextFields = () => {
     setPatientName('');
     setSymptoms('');
+    setPrescriptionName('');
     setInput('');
     setDirection('');
   };
@@ -214,6 +216,19 @@ export function ClinicTool() {
               반영할 질환·증상: {effectiveSymptoms}
             </p>
           )}
+          <div className="space-y-2">
+            <label htmlFor="patient-prescription" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
+              <Stethoscope size={20} /> 사용한 처방명 (선택)
+            </label>
+            <input id="patient-prescription" type="text" value={prescriptionName}
+              onChange={e => setPrescriptionName(e.target.value)}
+              placeholder="예: 온청음 + 오령산" autoComplete="off" maxLength={500}
+              aria-describedby="prescription-help"
+              className="w-full min-w-0 p-4 sm:p-5 bg-white border border-[#552c24]/20 rounded-2xl focus:ring-2 focus:ring-[#ffcd4a]/50 focus:border-[#ffcd4a] outline-none text-lg sm:text-xl" />
+            <p id="prescription-help" className="text-sm sm:text-base text-[#552c24]/80">
+              처방명은 내부 참고용입니다. 환자 문안에는 이름을 숨기고 효과를 설명합니다.
+            </p>
+          </div>
           </>}
 
           <div className="space-y-4">

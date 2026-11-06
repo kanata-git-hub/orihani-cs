@@ -1,7 +1,7 @@
 import { getEffectPrescriptionNames, isKnownPrescriptionName } from './src/prescriptionFields.ts';
 
 const instruction = `
-effectPrescriptionNames는 이번 메시지와 추가 요청에서 찾은 내부 참고용 처방명이다. 각 이름을 입력 순서대로 하나씩 확인하고 formulaEffects에 기록한다. 본문에서 이름을 숨기되 환자에게 설명할 작용은 숨기지 않는다.
+effectPrescriptionNames는 사용한 처방명 칸과 이번 메시지, 추가 요청에서 찾은 내부 참고용 처방명이다. prescriptionName은 직원이 이번 환자에게 사용한 처방을 별도로 입력한 칸이다. 각 이름을 입력 순서대로 하나씩 확인하고 formulaEffects에 기록한다. 본문에서 이름을 숨기되 환자에게 설명할 작용은 숨기지 않는다.
 이번에 주는 약, '지난번과 같은 약'으로 다시 주는 약, 또는 질문에서 효과 설명을 요청한 약은 explained다. 합방이면 각 처방의 역할을 파악해 환자가 알아들을 말로 자연스럽게 연결한다. action은 그 처방이 어떻게 돕는지 보여 주는 구체적인 작용 구절이고 patientQuote는 그 구절이 포함된 최종 환자 문장의 원문이다. 두 작용을 한 문장에 담아도 된다. 서로 다른 처방의 역할을 같은 구절의 반복으로 대체하지 않는다. 증상 목록을 되풀이한 '불편을 함께 개선하기 위해 준비했습니다', 복용법, 보관법, 안부와 직원용 조언은 효과 설명이 아니다. 초안이 이 수준이면 환자 문안을 고쳐서 설명을 넣는다.
 처방의 일반적인 작용과 환자의 소견을 구분한다. 입력한 증상이 모두 이번 처방의 직접 치료 대상이라고 가정하거나, 없던 증상·원인·검사 소견을 만들어 내지 않는다. 불분명한 자체 처방은 직원이 입력한 작용이 있으면 그 범위에서만 설명한다. 이때 그 작용 구절은 직원 원문에서 그대로 골라 환자 문장에도 사용하고 해당 근거를 sourceQuote에 넣는다. 식별할 수 없고 작용 정보도 없으면 unidentified, 과거·타인·중단 등 이번 안내와 무관한 처방만 background다. 이 두 경우에는 action과 patientQuote는 빈 문자열이고 sourceQuote에 해당 처방과 구분 근거가 담긴 직원 입력을 그대로 발췌한다. 그 밖의 경우 sourceQuote는 빈 문자열이다.\n`;
 
@@ -32,8 +32,9 @@ function hasSpecificAction(action: string, symptoms: string): boolean {
 type EffectItem = { index?: unknown; kind?: unknown; action?: unknown; patientQuote?: unknown; sourceQuote?: unknown };
 type EffectVerdict = { formulaEffects?: unknown };
 
-export function effectReviewFor(message: string, direction: string) {
-  const names = getEffectPrescriptionNames(message, direction);
+export function effectReviewFor(message: string, direction: string, prescriptionName = '') {
+  const names = getEffectPrescriptionNames(message, direction, prescriptionName);
+  const sources = [message, direction, prescriptionName];
   function validate(verdict: EffectVerdict, patientText: string, symptoms = ''): string[] {
     if (!names.length) return [];
     const items = verdict.formulaEffects;
@@ -49,13 +50,13 @@ export function effectReviewFor(message: string, direction: string) {
         if (!hasSpecificAction(action, symptoms) || actions.has(key) || quote.length < 8 ||
             !patientText.includes(quote) || !quote.includes(action)) return incomplete();
         if (!isKnownPrescriptionName(name) && (!source.includes(action) ||
-            ![message, direction].some(s => s.includes(source)))) return incomplete();
+            !sources.some(s => s.includes(source)))) return incomplete();
         actions.add(key);
         quotes.add(quote);
         continue;
       }
-      if (action || quote || !source || ![message, direction].some(s => s.includes(source)) ||
-          !(getEffectPrescriptionNames(source, '').includes(name) || source.trim() === name)) return incomplete();
+      if (action || quote || !source || !sources.some(s => s.includes(source)) ||
+          !(getEffectPrescriptionNames(source, '', prescriptionName.includes(source) ? source : '').includes(name) || source.trim() === name)) return incomplete();
       if (item.kind === 'unidentified' && !isKnownPrescriptionName(name)) continue;
       if (item.kind === 'background' &&
           /이전|예전|과거|당시|지난|전에는|전에|중단|보류|않|아니|다른|가족|보호자|비교|제외|무관|미정|아직|예약|문의만|검토|예시|알레르기/u.test(source) &&

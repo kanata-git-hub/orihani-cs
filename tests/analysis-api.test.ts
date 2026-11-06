@@ -6,6 +6,84 @@ import { buildHerbalFollowup, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFol
 import { MESSAGE_REVIEW_VERSION, parseAnalysisResult } from '../src/patientMessageText.ts';
 import { DIET_HERBAL_DIRECTIONS, HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
 import { PUBLIC_REVIEW_GREETING } from '../src/publicReview.ts';
+import { getEnteredPrescriptionNames, getEffectPrescriptionNames } from '../src/prescriptionFields.ts';
+import { inspectPatientSymptomInput } from '../src/patientSymptoms.ts';
+
+test('entered prescription names retain private names and named compounds', () => {
+  assert.deepEqual(getEnteredPrescriptionNames(' 인진오령산 + 오령산，원내 A방 / 원내 B방；없음\n오령산'), ['인진오령산','오령산','원내A방','원내B방']);
+  assert.deepEqual(getEffectPrescriptionNames('', '', '인진오령산 + 원내 A방'), ['인진오령산','원내A방']);
+  assert.deepEqual(getEnteredPrescriptionNames(' 처방명: 오령산 +  한약명: 온청음 '), ['오령산', '온청음']);
+  assert.deepEqual(getEnteredPrescriptionNames(''), []);
+  assert.deepEqual(inspectPatientSymptomInput({ symptoms:'부종, 봄 제제', selectedTreatments:[], prescriptionName:'봄 제제' }),
+    { symptoms:'부종', prescriptions:['봄 제제'], error:null });
+});
+
+test('a dedicated prescription reaches ordinary and fixed writing and review, but not a public reply', async () => {
+  const app = express();
+  let seenPrompt = '', seenName = '';
+  let providerCalls = 0;
+  const effect = '수분 흐름을 조절해 붓기가 가라앉도록 돕습니다.';
+  const draft = { strategy:'가이드', responseDraft:effect, staffTip:'팁' };
+  const context = { patientName:'가상', symptoms:'부종', prescriptionName:'오령산', input:'이번 약 안내',
+    direction:'', selectedTreatments:[], selectedSituations:[] as string[] };
+  app.use('/generate', analysisEndpoint(async (_rules, prompt) => {
+    providerCalls++;
+    seenPrompt = prompt;
+    return prompt.startsWith('{') ? effect : '###1###\n가이드\n###2###\n' + effect + '\n###3###\n팁';
+  }, (_req, _res, next) => next(), {
+    async reviewFree(source) {
+      seenName = source.prescriptionName ?? '';
+      if (source.prescriptionName === '원내 A방') return { ...draft, responseDraft:'원내 A방을 드세요.' };
+      return draft;
+    },
+    async reviewFixedSymptoms(source) {
+      seenName = source.prescriptionName ?? '';
+      assert.equal(source.symptoms, '부종');
+      return { terms:['부종'], effectParagraph:effect };
+    },
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const url = 'http://127.0.0.1:' + (server.address() as {port:number}).port + '/generate';
+  const submit = (patientContext: object, prescriptionNames: string[] = []) => fetch(url, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({systemInstruction:'clinic', prompt:'현재 약을 안내해 주세요.', patientContext, prescriptionNames}),
+  });
+  try {
+    const ordinary = await submit(context);
+    assert.equal(ordinary.status, 200);
+    assert.match(seenPrompt, /prescriptionName.*오령산/);
+    assert.equal(seenName, '오령산');
+    assert.doesNotMatch(JSON.stringify(await ordinary.json()), /오령산/);
+
+    const fixed = await submit({ ...context, input:'', selectedSituations:[HERBAL_FOLLOWUP_SITUATION] });
+    assert.equal(fixed.status, 200);
+    assert.equal(seenName, '오령산');
+    assert.deepEqual(JSON.parse(seenPrompt).formulaNames, ['오령산']);
+    assert.equal((await fixed.json()).effectParagraph, effect);
+
+    const publicResult = await submit({ ...context, selectedSituations:['리뷰 답변'], input:'친절해서 좋았습니다.' });
+    assert.equal(publicResult.status, 200);
+    assert.equal(seenName, '');
+    assert.doesNotMatch(seenPrompt, /오령산|prescriptionName/);
+
+    const leaked = await submit({ ...context, prescriptionName:'원내 A방' });
+    assert.equal(leaked.status, 422);
+    assert.equal((await leaked.json()).code, 'PRESCRIPTION_IN_OUTPUT');
+
+    const priorCalls = providerCalls;
+    for (const prescriptionName of [null, [], 1, '가'.repeat(501)]) {
+      assert.equal((await submit({ ...context, prescriptionName })).status, 400);
+    }
+    assert.equal(providerCalls, priorCalls);
+    assert.equal((await submit({ ...context, prescriptionName:undefined })).status, 200);
+    assert.equal(seenName, '');
+    const longName = '가'.repeat(180);
+    assert.equal((await submit({ ...context, prescriptionName:longName }, [longName])).status, 200);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
 
 test('authenticated generation returns only reviewed free messages and canonical fixed messages', async () => {
   const app = express();
