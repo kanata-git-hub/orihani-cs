@@ -4,7 +4,7 @@ import type { AnalyzeParams } from '../types';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage } from '../patientMessageText';
 import { isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
 import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
-import { getEffectPrescriptionNames, getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
+import { getEnteredPrescriptionNames, getEffectPrescriptionNames, getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
 import { isPublicReview, publicReviewContext, publicReviewPrompt, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 
 export const PRESCRIPTION_OUTPUT_ERROR = '처방명이 포함된 문안이라 표시할 수 없습니다. 다시 생성해 주세요.';
@@ -26,7 +26,8 @@ export const analyzePatientMessage = async (form: AnalyzeParams) => {
   const fixed = isHerbalFollowup(params);
 
   const { input, direction, selectedTreatments, selectedSituations } = params;
-  const prescriptionNames = [...new Set([...field.prescriptions, ...getReferencedPrescriptions(input, direction)])];
+  const prescriptionName = params.prescriptionName || '';
+  const prescriptionNames = [...new Set([...field.prescriptions, ...getEnteredPrescriptionNames(prescriptionName), ...getReferencedPrescriptions(input, direction)])];
   const treatments = selectedTreatments.filter(t => !SYMPTOM_TREATMENT_OPTIONS.includes(t));
   const patientFields = [
     params.patientName?.trim() && `환자 이름: ${params.patientName.trim()}`,
@@ -48,7 +49,7 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
     body: JSON.stringify({
       mode: fixed ? 'fixed' : 'free',
       patientContext: {
-        patientName: params.patientName || '', symptoms: params.symptoms || '',
+        patientName: params.patientName || '', symptoms: params.symptoms || '', prescriptionName,
         input, direction, selectedTreatments, selectedSituations
       },
       systemInstruction: buildSystemInstruction(selectedTreatments, selectedSituations, [symptoms, input].filter(Boolean).join('\n')),
@@ -76,7 +77,7 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
       throw new Error(REVIEW_UNAVAILABLE);
     }
     if (!isFixedEffectParagraph(data.effectParagraph) ||
-        (data.effectParagraph && !getEffectPrescriptionNames(input, direction).length)) throw new Error(REVIEW_UNAVAILABLE);
+        (data.effectParagraph && !getEffectPrescriptionNames(input, direction, prescriptionName).length)) throw new Error(REVIEW_UNAVAILABLE);
     const canonical = buildHerbalFollowup({ ...params, symptoms: verifiedSymptoms }, data.effectParagraph);
     if (data.text !== canonical) throw new Error(REVIEW_UNAVAILABLE);
   }

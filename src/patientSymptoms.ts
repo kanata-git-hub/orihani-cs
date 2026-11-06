@@ -1,4 +1,4 @@
-import { getReferencedPrescriptions, inspectSymptomField } from './prescriptionFields.ts';
+import { getEnteredPrescriptionNames, getReferencedPrescriptions, inspectSymptomField } from './prescriptionFields.ts';
 import type { AnalyzeParams } from './types';
 
 export const SYMPTOM_TREATMENT_OPTIONS = ['소화불량', '피로'];
@@ -18,9 +18,9 @@ export function retainsAllFixedSymptoms(symptoms: string, reviewed: string[]): b
     expected.every((term, index) => term === reviewed[index]);
 }
 
-type SymptomInput = Pick<AnalyzeParams, 'symptoms' | 'selectedTreatments'> & Partial<Pick<AnalyzeParams, 'input' | 'direction'>>;
+type SymptomInput = Pick<AnalyzeParams, 'symptoms' | 'selectedTreatments'> & Partial<Pick<AnalyzeParams, 'input' | 'direction' | 'prescriptionName'>>;
 export function inspectPatientSymptomInput(params: SymptomInput) {
-  const names = getReferencedPrescriptions(params.input || '', params.direction || '');
+  const names = [...getEnteredPrescriptionNames(params.prescriptionName), ...getReferencedPrescriptions(params.input || '', params.direction || '')];
   return inspectSymptomField(params.symptoms || '', names);
 }
 

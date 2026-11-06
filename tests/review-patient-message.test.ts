@@ -22,6 +22,39 @@ const clean = { strategy: '속마음: 시간을 문의했습니다.\n\n가이드
 const keep = { status: 'keep', strategy: '', responseDraft: '', staffTip: '' };
 const freeInput = { ...input, input: '자녀 김별하님의 눈 주위 가려움과 왼손 부기를 문의함.' };
 
+test('dedicated prescription names require effects in free and fixed review and keep private names hidden', async t => {
+  const form = { ...freeInput, input:'이번 약을 안내해 주세요.', symptoms:'발목 붓기', prescriptionName:'오령산' };
+  const responseDraft = '수분 흐름을 조절해 발목의 붓기가 가라앉도록 돕습니다.';
+  const formulaEffects = [{ index:0, kind:'explained', action:'수분 흐름을 조절해', patientQuote:responseDraft, sourceQuote:'' }];
+  await t.test('a known name in the dedicated field cannot be silently skipped', async st => {
+    provider(st, keep);
+    await assert.rejects(reviewFree(form, clean), { status:503 });
+  });
+  await t.test('free review receives the field and verifies its effect', async st => {
+    const mock = provider(st, { ...keep, formulaEffects });
+    assert.equal((await reviewFree(form, { ...clean, responseDraft })).responseDraft, responseDraft);
+    const body = JSON.parse(String(mock.mock.calls[0].arguments[1]?.body));
+    const source = JSON.parse(body.contents[0].parts[0].text);
+    assert.equal(source.context.prescriptionName, '오령산');
+    assert.deepEqual(source.effectPrescriptionNames, ['오령산']);
+  });
+  await t.test('fixed review adds the effect even without a message', async st => {
+    provider(st, { items:[{ index:0, kind:'symptom' }], formulaEffects, effectParagraph:responseDraft });
+    assert.deepEqual(await reviewFixedSymptoms({ ...form, input:'' }, '고정 본문'),
+      { terms:['발목 붓기'], effectParagraph:responseDraft });
+  });
+  await t.test('unidentified private compounds cannot introduce invented effects', async st => {
+    const privateInput = { ...form, prescriptionName:'봄 제제 + 여름 제제' };
+    const effects = ['봄 제제','여름 제제'].map((sourceQuote,index) => ({ index, kind:'unidentified', action:'', patientQuote:'', sourceQuote }));
+    provider(st, { ...keep, formulaEffects:effects });
+    assert.deepEqual(await reviewFree(privateInput, clean), clean);
+  });
+  await t.test('a private field name is rejected in output without server metadata', async st => {
+    provider(st, keep);
+    await assert.rejects(reviewFree({ ...form, prescriptionName:'봄 제제' }, { ...clean, responseDraft:'봄제제를 드세요.' }), { status:503 });
+  });
+});
+
 test('public review uses the published words and a separate editorial brief for Argon', async t => {
   const context = { ...freeInput, input: '한약을 받으러 갔는데 기다리는 동안 아무 안내가 없어서 아쉬웠습니다.',
     patientName:'기록전용이름', symptoms:'기록전용증상', selectedSituations:['리뷰 답변'], selectedTreatments:['한약'],

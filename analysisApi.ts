@@ -4,7 +4,7 @@ import { buildHerbalFollowup, herbalFollowupError, isHerbalFollowup } from './sr
 import { herbalDirectionsFor, withHerbalDirections } from './src/herbalDirections.ts';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
 import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
-import { findDisclosedPrescription, getEffectPrescriptionNames, getReferencedPrescriptions } from './src/prescriptionFields.ts';
+import { findDisclosedPrescription, getEnteredPrescriptionNames, getEffectPrescriptionNames, getReferencedPrescriptions } from './src/prescriptionFields.ts';
 import type { AnalyzeParams } from './src/types/index.ts';
 import { FixedSymptomInputError, reviewFixedSymptoms, reviewFree } from './reviewPatientMessage.ts';
 import { requireUser } from './serverSecurity.ts';
@@ -28,6 +28,7 @@ function isContext(value: unknown): value is Context {
   if (!value || typeof value !== 'object') return false;
   const c = value as Partial<Context>;
   return typeof c.patientName === 'string' && c.patientName.length <= 160 &&
+    (c.prescriptionName === undefined || (typeof c.prescriptionName === 'string' && c.prescriptionName.length <= 500)) &&
     typeof c.symptoms === 'string' && c.symptoms.length <= 4096 &&
     typeof c.input === 'string' && c.input.length <= 65536 &&
     typeof c.direction === 'string' && c.direction.length <= 8192 &&
@@ -43,16 +44,17 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
     res.set('Cache-Control', 'no-store');
     if (typeof systemInstruction !== 'string' || !systemInstruction.trim() || systemInstruction.length > 32000 ||
         typeof prompt !== 'string' || !prompt.trim() || prompt.length > 65536 ||
-        !isStringList(prescriptionNames, 80, 128) || (patientContext !== undefined && !isContext(patientContext))) {
+        !isStringList(prescriptionNames, 300, 500) || (patientContext !== undefined && !isContext(patientContext))) {
       res.status(400).json({ error: '입력 내용과 길이를 확인해주세요.' });
       return;
     }
 
     // Compatibility with already-open older clients. Only the staff's input is evidence for review.
     const submitted: Context = patientContext ? {
+      prescriptionName: patientContext.prescriptionName ?? '',
       patientName: patientContext.patientName, symptoms: patientContext.symptoms, input: patientContext.input,
       direction: patientContext.direction, selectedTreatments: patientContext.selectedTreatments, selectedSituations: patientContext.selectedSituations,
-    } : { patientName: '', symptoms: '', input: prompt, direction: '', selectedTreatments: [], selectedSituations: [] };
+    } : { patientName: '', symptoms: '', prescriptionName: '', input: prompt, direction: '', selectedTreatments: [], selectedSituations: [] };
     try {
       const publicReply = isPublicReview(submitted.selectedSituations);
       if (publicReply && (isHerbalFollowup(submitted) || !submitted.input.trim())) {
@@ -69,16 +71,16 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         res.status(422).json({ code: 'PATIENT_INPUT', error: problem });
         return;
       }
-      const prescriptionReferences = [...new Set([...inspected.prescriptions, ...getReferencedPrescriptions(context.input, context.direction)])];
+      const prescriptionReferences = [...new Set([...inspected.prescriptions, ...getEnteredPrescriptionNames(context.prescriptionName), ...getReferencedPrescriptions(context.input, context.direction)])];
       const privateNames = [...prescriptionNames, ...prescriptionReferences];
       let text: string;
       let effectParagraph: string | undefined;
       if (fixed) {
         const draft = parseAnalysisResult(buildHerbalFollowup(context)).responseDraft;
-        const formulaNames = getEffectPrescriptionNames(context.input, context.direction);
+        const formulaNames = getEffectPrescriptionNames(context.input, context.direction, context.prescriptionName);
         let effectDraft = '';
         if (formulaNames.length) {
-          const basis = { symptoms, input: context.input, direction: context.direction, formulaNames };
+          const basis = { symptoms, input: context.input, direction: context.direction, prescriptionName: context.prescriptionName, formulaNames };
           effectDraft = (await generate(fixedEffectWriting, JSON.stringify(basis)))?.trim() || '';
           if (!effectDraft) throw new Error(INVALID_PATIENT_MESSAGE);
         }
@@ -94,7 +96,11 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         const directions = herbalDirectionsFor(context.selectedTreatments);
         const writingRules = patientContext
           ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText) : systemInstruction;
-        const writingPrompt = publicReply ? publicReviewPrompt(context.input, context.direction) : prompt;
+        let writingPrompt = publicReply ? publicReviewPrompt(context.input, context.direction) : prompt;
+        if (!publicReply && context.prescriptionName.trim()) {
+          writingPrompt += '\n\n직원이 이번 환자에게 사용한 처방명(내부 참고용, 이름 출력 금지, 작용 설명에 반영)\n' +
+            JSON.stringify({ prescriptionName: context.prescriptionName });
+        }
         const draft = parseAnalysisResult(await generate(writingRules, writingPrompt) || '');
         draft.responseDraft = withHerbalDirections(draft.responseDraft, directions);
         const clinicReference = buildClinicReference(context.selectedTreatments, context.selectedSituations, clinicalText);

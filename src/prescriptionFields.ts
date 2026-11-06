@@ -26,7 +26,7 @@ const localMedicineCode = /^[가-힣]{2,16}[A-Za-z]\d[A-Za-z0-9-]{0,12}$/u;
 const compact = (value: string) => value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]+/gu, '');
 const cleanTerm = (value: string) => value.trim().replace(/^[('"“‘「『\[]+|[)'"”’」』\]]+$/gu, '').trim();
 const generic = new Set(['한약', '탕약', '약', '미정', '미입력', '미확인', '없음', '미기재', '미지정', '확인', '보류', '변경', '유지', '예정', '기존', '이전', '신규', '조정', '검토', '상담', '없습니다', '없어요']);
-const ambiguous = '질환·증상에는 증상만 남겨 주세요. 처방명이나 복용 전후 상황은 메시지/상황에 나눠 적어 주세요.';
+const ambiguous = '질환·증상에는 증상만 남겨 주세요. 처방 이름은 사용한 처방명 칸에, 복용 전후 상황은 메시지/상황에 나눠 적어 주세요.';
 
 function referenced(text: string, extra: string[] = []): string[] {
   const normalized = compact(text);
@@ -53,8 +53,14 @@ export function isKnownPrescriptionName(name: string): boolean {
   return formulaNames.includes(compact(name));
 }
 
-export function getEffectPrescriptionNames(message: string, direction: string): string[] {
-  const result = new Set<string>();
+export function getEnteredPrescriptionNames(value = ''): string[] {
+  return [...new Set(value.split(/[+＋,，、/;；\n]+/u)
+    .map(part => compact(cleanTerm(part.trim().replace(new RegExp('^' + label.source, 'u'), ''))))
+    .filter(name => name && !generic.has(name)))];
+}
+
+export function getEffectPrescriptionNames(message: string, direction: string, prescriptionName = ''): string[] {
+  const result = new Set(getEnteredPrescriptionNames(prescriptionName));
   for (const field of [message, direction]) {
     const names = getReferencedPrescriptions(field).map(name => {
       const bare = name.replace(/(?:입니다|인데요|으로|을|를|은|는|과|와)$/u, '');

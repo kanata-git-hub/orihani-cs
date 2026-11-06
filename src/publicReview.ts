@@ -8,7 +8,7 @@ export function isPublicReview(situations: string[]): boolean {
 }
 
 export function publicReviewContext(input: string, direction: string): Required<AnalyzeParams> {
-  return { patientName: '', symptoms: '', input, direction, selectedTreatments: [], selectedSituations: ['리뷰 답변'] };
+  return { patientName: '', symptoms: '', prescriptionName: '', input, direction, selectedTreatments: [], selectedSituations: ['리뷰 답변'] };
 }
 
 export const PUBLIC_REVIEW_STYLE = `오리한의원 대표원장 손영남이 네이버 플레이스 방문자 리뷰에 직접 남기는 답글이다.

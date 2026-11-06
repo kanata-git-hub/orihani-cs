@@ -4,9 +4,10 @@ import { isFixedEffectParagraph } from './src/herbalFollowup.ts';
 import type { AnalysisResult } from './src/types/index.ts';
 import { normalizePatientMessage } from './src/patientMessageText.ts';
 import { isPublicReview, PUBLIC_REVIEW_GREETING, PUBLIC_REVIEW_STYLE } from './src/publicReview.ts';
-import { findDisclosedPrescription, getReferencedPrescriptions, inspectSymptomField } from './src/prescriptionFields.ts';
+import { findDisclosedPrescription, getEnteredPrescriptionNames, getReferencedPrescriptions, inspectSymptomField } from './src/prescriptionFields.ts';
 
 type ReviewInput = {
+  prescriptionName?: string;
   patientName: string; symptoms: string; input: string; direction: string;
   selectedTreatments: string[]; selectedSituations: string[]; clinicReference?: string; prescriptionReferences?: string[];
 };
@@ -34,7 +35,7 @@ const verdictFormat = `세 섹션이 모두 그대로 사용 가능하면 status
 export class FixedSymptomInputError extends Error {
   readonly status = 422;
   constructor() {
-    super('질환·증상의 일부를 확인하지 못했습니다. 실제 증상만 남기고 처방명은 메시지/상황에 따로 적어 주세요.');
+    super('질환·증상의 일부를 확인하지 못했습니다. 실제 증상만 남기고 처방명은 사용한 처방명 칸에 따로 적어 주세요.');
   }
 }
 
@@ -78,7 +79,7 @@ async function requestVerdict(instruction: string, data: object, schema: object)
 export async function reviewFree(input: ReviewInput, draft: AnalysisResult): Promise<AnalysisResult> {
   const fields = ['strategy', 'responseDraft', 'staffTip'] as const;
   const publicReply = isPublicReview(input.selectedSituations);
-  const effects = publicReply ? undefined : effectReviewFor(input.input, input.direction);
+  const effects = publicReply ? undefined : effectReviewFor(input.input, input.direction, input.prescriptionName);
   const instruction = publicReply ? publicReplyReview : free + (effects?.instruction ?? '');
   const data = publicReply ? { review: input.input, tone: input.direction, draft }
     : { context: input, draft, effectPrescriptionNames: effects?.names };
@@ -91,7 +92,7 @@ export async function reviewFree(input: ReviewInput, draft: AnalysisResult): Pro
     required: ['status', ...fields, ...(effects?.required ?? [])],
   });
   if (verdict.status !== 'keep' && verdict.status !== 'revise') throw unavailable();
-  const names = [...(input.prescriptionReferences ?? []), ...getReferencedPrescriptions(input.symptoms, input.input, input.direction)];
+  const names = [...(input.prescriptionReferences ?? []), ...getEnteredPrescriptionNames(input.prescriptionName), ...getReferencedPrescriptions(input.symptoms, input.input, input.direction)];
   const result: AnalysisResult = { strategy: '', responseDraft: '', staffTip: '' };
   let changed = false;
   for (const field of fields) {
@@ -118,10 +119,10 @@ export async function reviewFree(input: ReviewInput, draft: AnalysisResult): Pro
 }
 
 export async function reviewFixedSymptoms(input: ReviewInput, draft: string, effectDraft = '') {
-  const names = [...(input.prescriptionReferences ?? []), ...getReferencedPrescriptions(input.input, input.direction)];
+  const names = [...(input.prescriptionReferences ?? []), ...getEnteredPrescriptionNames(input.prescriptionName), ...getReferencedPrescriptions(input.input, input.direction)];
   const terms = fixedSymptomTerms(input.symptoms);
   if (terms.length > 80) throw new FixedSymptomInputError();
-  const spec = effectReviewFor(input.input, input.direction);
+  const spec = effectReviewFor(input.input, input.direction, input.prescriptionName);
   const withEffects = spec.names.length > 0;
   const slotInstruction = 'effectDraft는 별도의 작성자가 쓴 효과 문단 초안이다. 원자료와 독립적으로 대조하고, 증상 나열·효과 누락·과장이 있으면 바로잡은 최종 문단만 effectParagraph에 넣는다. 이번 환자의 처방이 어떤 작용으로 어떤 불편에 도움이 되는지 약 이름 없이 간결하게 전한다. 처방의 대상이 아니거나 설명할 수 있는 효과가 없으면 빈 문자열이다. 고정문구·복용법·인사·내원 안내·직원 지침을 되풀이하지 않는다. patientQuote에는 이 문단에서 해당 효과를 설명한 문장 전체를 그대로 인용한다. 이 문단의 모든 문장은 적어도 하나의 patientQuote에 포함되어야 한다.';
   const verdict = await requestVerdict(withEffects ? [fixed, spec.instruction, slotInstruction].join('\n') : fixed,
