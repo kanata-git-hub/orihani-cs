@@ -48,7 +48,7 @@ function hasSpecificAction(action: string, symptoms: string): boolean {
   const labels = symptoms.match(/[\p{L}\p{N}]+/gu) ?? [];
   for (const label of labels.sort((a,b) => b.length - a.length)) remaining = remaining.replaceAll(label, ' ');
   return (remaining.match(/[\p{L}\p{N}]+/gu) ?? []).some(word => word.length >= 2 &&
-    !/^(?:관련|증상|질환|불편|모두|모든|함께|동시|개선|완화|치료|해결|호전|회복|도움|돕기|돕는|도와|위한|위해|있도록|있게|이번|한약|처방|준비|목표|효과|꾸준|전반|전신|몸의|몸을|상태|균형을|잡아|그리고|또는|식후|식전|복용|약을|약은|약과|정해|정량|규칙|주세요|주십|부탁|하거나|하고|하는|합니다|드립니다|있습니다|위하|시키|해드|드리|줄여|덜어|대한|에서|으로|까지|에도)/u.test(word));
+    !/^(?:관련|증상|질환|불편|모두|모든|함께|동시|개선|완화|치료|해결|호전|회복|도움|돕기|돕는|도와|위한|위해|있도록|있게|이번|한약|처방|준비|목표|효과|꾸준|전반|전신|몸의|몸을|상태|균형을|잡아|그리고|또는|식후|식전|복용|약을|약은|약과|정해|정량|규칙|오늘|매일|정확|용량|시간|간격|일정|안내|양을|양은|대로|맞춰|주세요|주십|부탁|하거나|하고|하는|합니다|드립니다|있습니다|위하|시키|해드|드리|줄여|덜어|대한|에서|으로|까지|에도)/u.test(word));
 }
 
 type EffectItem = { index?: unknown; kind?: unknown; action?: unknown; patientQuote?: unknown; sourceQuote?: unknown };
