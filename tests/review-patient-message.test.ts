@@ -17,6 +17,16 @@ function provider(t: TestContext, verdict: unknown, options: { version?: string;
   }), { status: options.upstream ?? 200 }));
 }
 
+function providerSequence(t: TestContext, verdicts: unknown[]) {
+  const mock = provider(t, verdicts[0]);
+  let index = 0;
+  mock.mock.mockImplementation(async () => new Response(JSON.stringify({
+    modelVersion: 'gemini-4-argon',
+    candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(verdicts[Math.min(index++, verdicts.length - 1)]) }] } }],
+  })));
+  return mock;
+}
+
 const clean = { strategy: '속마음: 시간을 문의했습니다.\n\n가이드: 확인 후 답합니다.',
   responseDraft: '안녕하세요.', staffTip: '거절 시: 희망 시간을 여쭙습니다.\n\n핵심: 예약 확정 전입니다.' };
 const keep = { status: 'keep', strategy: '', responseDraft: '', staffTip: '' };
@@ -265,7 +275,7 @@ test('free review replaces a list of symptoms with the roles of both current for
   for (const [name, draft, verdict] of [
     ['silent keep', original, keep],
     ['missing second effect', revised, { ...keep, formulaEffects: effects.slice(0, 1) }],
-    ['misordered component indexes', revised, { ...keep, formulaEffects: [...effects].reverse() }],
+    ['duplicate component indexes', revised, { ...keep, formulaEffects: [effects[0], { ...effects[1], index:0 }] }],
     ['staff-only evidence', { ...original, staffTip: fluid + ' ' + redness }, { ...keep, formulaEffects: effects }],
     ['generic symptom recap as one role', { ...clean, responseDraft: generic + ' ' + redness }, { ...keep, formulaEffects: [
       { ...effects[0], patientQuote: generic, action: vagueAction }, effects[1]] }],
@@ -279,6 +289,134 @@ test('free review replaces a list of symptoms with the roles of both current for
       await assert.rejects(reviewFree(form, draft), { status: 503 });
     });
   }
+});
+
+test('effect repair reuses the corrected normalized candidate and can keep its text', async t => {
+  const form = { ...freeInput, patientName:'검증환자', symptoms:'발목 붓기', prescriptionName:'오령산', input:'이번 약을 안내합니다.' };
+  const quote = '수분 흐름을 조절해 발목의 붓기가 가라앉도록 돕습니다.';
+  const revised = { ...clean, responseDraft:'안녕하세요.\\n\\n' + quote, staffTip:'핵심: 복용 후 변화를 확인합니다.' };
+  const normalized = { ...revised, responseDraft:'안녕하세요.\n\n' + quote };
+  const effects = [{ index:0, kind:'explained', action:'수분 흐름을 조절해', patientQuote:quote, sourceQuote:'' }];
+  const warning = t.mock.method(console, 'warn', () => {});
+  const mock = providerSequence(t, [{ status:'revise', ...revised, formulaEffects:[] }, { ...keep, formulaEffects:effects }]);
+  assert.deepEqual(await reviewFree(form, clean), normalized);
+  assert.equal(mock.mock.callCount(), 2);
+  const requests = mock.mock.calls.map(call => JSON.parse(String(call.arguments[1]?.body)));
+  const retry = JSON.parse(requests[1].contents[0].parts[0].text);
+  assert.deepEqual(retry.context, form);
+  assert.deepEqual(retry.draft, normalized);
+  assert.doesNotMatch(retry.draft.responseDraft, /\\n/);
+  assert.deepEqual(retry.effectRepair, { reason:'missing_entries' });
+  assert.match(requests[1].systemInstruction.parts[0].text, /문안이 이미 맞으면 표현을 억지로 바꾸지/);
+  assert.match(requests[1].systemInstruction.parts[0].text, /background나 unidentified로 바꾸어/);
+  assert.equal(mock.mock.calls[0].arguments[0], mock.mock.calls[1].arguments[0]);
+  assert.deepEqual(warning.mock.calls[0].arguments, ['Prescription effect review incomplete', { mode:'free', attempt:1, reason:'missing_entries' }]);
+});
+
+test('effect repair can supplement a vague draft with the missing concrete effect', async t => {
+  const form = { ...freeInput, patientName:'검증환자', symptoms:'발목 붓기', prescriptionName:'오령산', input:'이번 약을 안내합니다.' };
+  const original = { ...clean, responseDraft:'발목 붓기를 개선하도록 약을 준비했습니다.' };
+  const quote = '수분 흐름을 조절해 발목의 붓기가 가라앉도록 돕습니다.';
+  const revised = { ...clean, responseDraft:quote };
+  t.mock.method(console, 'warn', () => {});
+  const mock = providerSequence(t, [{ ...keep, formulaEffects:[] }, { status:'revise', ...revised,
+    formulaEffects:[{ index:0, kind:'explained', action:'수분 흐름을 조절해', patientQuote:quote, sourceQuote:'' }] }]);
+  assert.deepEqual(await reviewFree(form, original), revised);
+  assert.equal(mock.mock.callCount(), 2);
+  const retry = JSON.parse(JSON.parse(String(mock.mock.calls[1].arguments[1]?.body)).contents[0].parts[0].text);
+  assert.deepEqual(retry.draft, original);
+  assert.deepEqual(retry.context, form);
+});
+
+test('fixed effect repair preserves approved copy and rechecks all symptom classifications', async t => {
+  const form = { ...freeInput, patientName:'검증환자', symptoms:'발목 붓기', prescriptionName:'오령산', input:'이번 약을 안내합니다.' };
+  const effectParagraph = '수분 흐름을 조절해 발목의 붓기가 가라앉도록 돕습니다.';
+  const items = [{ index:0, kind:'symptom' }];
+  const formulaEffects = [{ index:0, kind:'explained', action:'수분 흐름을 조절해', patientQuote:effectParagraph, sourceQuote:'' }];
+  await t.test('one targeted repair returns the complete reviewed effect', async st => {
+    st.mock.method(console, 'warn', () => {});
+    const mock = providerSequence(st, [{ items, effectParagraph, formulaEffects:[] }, { items, effectParagraph, formulaEffects }]);
+    assert.deepEqual(await reviewFixedSymptoms(form, '원장 승인 고정 본문', '원래 효과 초안'), { terms:['발목 붓기'], effectParagraph });
+    assert.equal(mock.mock.callCount(), 2);
+    const retry = JSON.parse(JSON.parse(String(mock.mock.calls[1].arguments[1]?.body)).contents[0].parts[0].text);
+    assert.equal(retry.draft, '원장 승인 고정 본문');
+    assert.equal(retry.effectDraft, effectParagraph);
+    assert.deepEqual(retry.context, form);
+    assert.deepEqual(retry.effectRepair, { reason:'missing_entries' });
+  });
+  await t.test('a repair cannot discard a confirmed symptom', async st => {
+    st.mock.method(console, 'warn', () => {});
+    const mock = providerSequence(st, [{ items, effectParagraph, formulaEffects:[] },
+      { items:[{ index:0, kind:'prescription' }], effectParagraph, formulaEffects }]);
+    await assert.rejects(reviewFixedSymptoms(form, '원장 승인 고정 본문'), { status:422 });
+    assert.equal(mock.mock.callCount(), 2);
+  });
+});
+
+test('effect repair stops after two calls and logs only finite failure metadata', async t => {
+  const form = { ...freeInput, patientName:'기록금지이름', symptoms:'발목 붓기', prescriptionName:'오령산', input:'기록금지메모' };
+  const quote = '수분 흐름을 조절해 발목의 붓기가 가라앉도록 돕습니다.';
+  const formulaEffects = [{ index:0, kind:'explained', action:'수분 흐름을 조절해', patientQuote:quote, sourceQuote:'' }];
+  const warning = t.mock.method(console, 'warn', () => {});
+  const mock = provider(t, { ...keep, formulaEffects });
+  await assert.rejects(reviewFree(form, clean), { status:503 });
+  assert.equal(mock.mock.callCount(), 2);
+  assert.equal(warning.mock.callCount(), 2);
+  for (const [index, call] of warning.mock.calls.entries()) {
+    assert.equal(call.arguments[0], 'Prescription effect review incomplete');
+    assert.deepEqual(call.arguments[1], { mode:'free', attempt:index + 1, reason:'missing_patient_evidence', index:0 });
+  }
+  assert.doesNotMatch(JSON.stringify(warning.mock.calls.map(call => call.arguments)), /기록금지|오령산|발목|수분|test-key/);
+});
+
+test('effect repair never retries hard failures, public replies, or failed provider calls', async t => {
+  const form = { ...freeInput, patientName:'검증환자', symptoms:'발목 붓기', prescriptionName:'오령산', input:'이번 약을 안내합니다.' };
+  for (const [label, verdict, options] of [
+    ['disclosed prescription', { status:'revise', ...clean, responseDraft:'오령산을 잘 드세요.' }, {}],
+    ['invalid status', { ...keep, status:'unknown' }, {}],
+    ['failed provider', keep, { upstream:503 }],
+    ['truncated response', keep, { finish:'MAX_TOKENS' }],
+  ] as const) {
+    await t.test(label, async st => {
+      const warning = st.mock.method(console, 'warn', () => {});
+      const mock = provider(st, verdict, options);
+      await assert.rejects(reviewFree(form, clean), { status:503 });
+      assert.equal(mock.mock.callCount(), 1);
+      assert.equal(warning.mock.callCount(), 0);
+    });
+  }
+  await t.test('fixed uncertain symptom is not retried', async st => {
+    const mock = provider(st, { items:[{ index:0, kind:'uncertain' }], effectParagraph:'', formulaEffects:[] });
+    await assert.rejects(reviewFixedSymptoms(form, '원장 승인 고정 본문'), { status:422 });
+    assert.equal(mock.mock.callCount(), 1);
+  });
+  await t.test('public replies never require private effect evidence', async st => {
+    const warning = st.mock.method(console, 'warn', () => {});
+    const draft = { ...clean, responseDraft:PUBLIC_REVIEW_GREETING + '\n방문 경험을 나눠 주셔서 감사합니다.' };
+    const mock = provider(st, keep);
+    assert.deepEqual(await reviewFree({ ...form, selectedSituations:['리뷰 답변'] }, draft), draft);
+    assert.equal(mock.mock.callCount(), 1);
+    assert.equal(warning.mock.callCount(), 0);
+  });
+});
+
+test('effect repairs still reject disclosed prescriptions and invented private sources', async t => {
+  const quote = '수분 흐름을 조절해 발목의 붓기가 가라앉도록 돕습니다.';
+  const formulaEffects = [{ index:0, kind:'explained', action:'수분 흐름을 조절해', patientQuote:quote, sourceQuote:'' }];
+  await t.test('a second review cannot expose a prescription', async st => {
+    st.mock.method(console, 'warn', () => {});
+    const form = { ...freeInput, patientName:'검증환자', symptoms:'발목 붓기', prescriptionName:'오령산', input:'이번 약을 안내합니다.' };
+    const mock = providerSequence(st, [{ ...keep, formulaEffects:[] }, { status:'revise', ...clean, responseDraft:'오령산은 ' + quote, formulaEffects }]);
+    await assert.rejects(reviewFree(form, clean), { status:503 });
+    assert.equal(mock.mock.callCount(), 2);
+  });
+  await t.test('an invented source cannot justify a private formula after repair', async st => {
+    st.mock.method(console, 'warn', () => {});
+    const form = { ...freeInput, patientName:'검증환자', symptoms:'발목 붓기', prescriptionName:'원내검증제제', input:'이번 약을 안내합니다.' };
+    const mock = providerSequence(st, [{ ...keep, formulaEffects:[] }, { ...keep, formulaEffects:[{ ...formulaEffects[0], sourceQuote:quote }] }]);
+    await assert.rejects(reviewFree(form, { ...clean, responseDraft:quote }), { status:503 });
+    assert.equal(mock.mock.callCount(), 2);
+  });
 });
 
 test('free review can omit a previous prescription and an unidentified private formula', async t => {
