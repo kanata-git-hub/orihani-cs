@@ -1,5 +1,5 @@
 import { fixedSymptomTerms } from './src/patientSymptoms.ts';
-import { effectReviewFor } from './prescriptionEffectReview.ts';
+import { effectReviewFor, IncompleteEffectReview } from './prescriptionEffectReview.ts';
 import { isFixedEffectParagraph } from './src/herbalFollowup.ts';
 import type { AnalysisResult } from './src/types/index.ts';
 import { normalizePatientMessage } from './src/patientMessageText.ts';
@@ -31,6 +31,15 @@ review에 적힌 작성자의 경험과 감정을 먼저 파악하고 draft의 �
 구체적인 후기에 상투적인 감사와 다짐만 있거나, 평소 받던 치료를 이번에 좋아졌다고 한 부위로 바꾸었거나, 불만에 칭찬처럼 답하거나, 짧은 별점에 치료 경험을 지어냈으면 revise로 직접 바로잡는다. 후기 맥락에 맞게 바로 호전을 짚은 답글에 감사를 억지로 추가하지 않는다. 다른 사람의 사례, 이름·닉네임, 비공개 진료 내용, 처방명·복약 안내를 답글에 옮기지 않는다. 직원 안내도 같은 공개 기준에 맞춰 점검한다.`;
 
 const verdictFormat = `세 섹션이 모두 그대로 사용 가능하면 status=keep, strategy·responseDraft·staffTip은 모두 빈 문자열이다. 하나라도 고치면 status=revise이고 세 필드 모두 최종 원문 전체를 반환한다. 바꿀 필요 없는 섹션·문장은 그대로 유지한다. strategy의 '속마음:', '가이드:'와 staffTip의 '거절 시:', '핵심:' 역할과 문단 구분을 유지하되 ### 구분자는 쓰지 않는다. 문단 사이는 실제 빈 줄로 표시한다.`;
+
+type EffectRepair = Pick<IncompleteEffectReview, 'reason' | 'index'>;
+const effectRepairInstruction = `effectRepair는 직전 검수에서 한약 작용 설명과 검수 근거의 일치를 확인하지 못한 항목이다. reason은 실패한 검사이고 index는 effectPrescriptionNames의 0부터 시작하는 번호다. draft 또는 effectDraft는 직전 검수에서 수정한 문안이다. 원래 context를 다시 대조하고 모든 처방의 분류·구체적 작용·최종 문안의 인용을 다시 확인한다. 이번에 실제 사용하는 식별 가능한 각 처방은 explained로 판정하고 각 처방의 작용을 최종 환자 문안에 담는다. 작용 설명이 빠졌거나 증상 나열에 그쳤으면 문안을 보완한다. 현재 쓰는 확인 가능한 처방을 background나 unidentified로 바꾸어 검사를 피하지 않는다. 문안이 이미 맞으면 표현을 억지로 바꾸지 말고 해당 원문과 일치하는 검수 근거를 반환한다. 각 처방의 index를 빠짐없이 한 번씩 사용한다. 내부 처방명이나 새로운 환자 사실을 노출·추가하지 않는다. 식별 불가한 처방의 작용이나 sourceQuote를 지어내지 말고, 직원 원문에 근거가 없는 자체 처방의 효과는 문안에서도 삭제한다. 기존의 문맥·개인정보·고정문구·형식 검수 기준은 모두 그대로 적용한다.`;
+
+function effectFailure(error: IncompleteEffectReview, mode: 'free' | 'fixed', attempt: number): EffectRepair {
+  const repair = { reason: error.reason, ...(error.index !== undefined && { index: error.index }) };
+  console.warn('Prescription effect review incomplete', { mode, attempt, ...repair });
+  return repair;
+}
 
 export class FixedSymptomInputError extends Error {
   readonly status = 422;
@@ -81,41 +90,54 @@ export async function reviewFree(input: ReviewInput, draft: AnalysisResult): Pro
   const publicReply = isPublicReview(input.selectedSituations);
   const effects = publicReply ? undefined : effectReviewFor(input.input, input.direction, input.prescriptionName);
   const instruction = publicReply ? publicReplyReview : free + (effects?.instruction ?? '');
-  const data = publicReply ? { review: input.input, tone: input.direction, draft }
-    : { context: input, draft, effectPrescriptionNames: effects?.names };
-  const verdict = await requestVerdict(instruction + '\n' + verdictFormat, data, {
-    type: 'OBJECT', properties: {
-      status: { type: 'STRING', enum: ['keep', 'revise'] },
-      strategy: { type: 'STRING' }, responseDraft: { type: 'STRING' }, staffTip: { type: 'STRING' },
-      ...effects?.properties,
-    },
-    required: ['status', ...fields, ...(effects?.required ?? [])],
-  });
-  if (verdict.status !== 'keep' && verdict.status !== 'revise') throw unavailable();
-  const names = [...(input.prescriptionReferences ?? []), ...getEnteredPrescriptionNames(input.prescriptionName), ...getReferencedPrescriptions(input.symptoms, input.input, input.direction)];
-  const result: AnalysisResult = { strategy: '', responseDraft: '', staffTip: '' };
-  let changed = false;
-  for (const field of fields) {
-    const returned = verdict[field];
-    if (typeof returned !== 'string') throw unavailable();
-    const original = normalizePatientMessage(draft[field]).trim();
-    if (verdict.status === 'keep' && returned && normalizePatientMessage(returned).trim() !== original) throw unavailable();
-    const text = verdict.status === 'keep' ? original : normalizePatientMessage(returned).trim();
-    if (!text || /###\d+###|```/.test(text) || findDisclosedPrescription(text, names)) throw unavailable();
-    result[field] = text;
-    if (text !== original) changed = true;
-  }
-  if ((verdict.status === 'revise' && !changed) ||
-      /(?:^|\n)\s*(속마음|가이드|거절 시|핵심)\s*[:：]/.test(result.responseDraft)) throw unavailable();
-  if (publicReply) {
-    const text = result.responseDraft;
-    const body = text.slice(PUBLIC_REVIEW_GREETING.length).trim();
-    if (!text.startsWith(PUBLIC_REVIEW_GREETING) || !/[가-힣]/u.test(body) || body.includes(PUBLIC_REVIEW_GREETING)) {
-      throw unavailable();
+  let currentDraft = draft;
+  let effectRepair: EffectRepair | undefined;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const data = publicReply ? { review: input.input, tone: input.direction, draft }
+      : { context: input, draft: currentDraft, effectPrescriptionNames: effects?.names, effectRepair };
+    const verdict = await requestVerdict(instruction + '\n' + verdictFormat + (effectRepair ? '\n' + effectRepairInstruction : ''), data, {
+      type: 'OBJECT', properties: {
+        status: { type: 'STRING', enum: ['keep', 'revise'] },
+        strategy: { type: 'STRING' }, responseDraft: { type: 'STRING' }, staffTip: { type: 'STRING' },
+        ...effects?.properties,
+      },
+      required: ['status', ...fields, ...(effects?.required ?? [])],
+    });
+    if (verdict.status !== 'keep' && verdict.status !== 'revise') throw unavailable();
+    const names = [...(input.prescriptionReferences ?? []), ...getEnteredPrescriptionNames(input.prescriptionName), ...getReferencedPrescriptions(input.symptoms, input.input, input.direction)];
+    const result: AnalysisResult = { strategy: '', responseDraft: '', staffTip: '' };
+    let changed = false;
+    for (const field of fields) {
+      const returned = verdict[field];
+      if (typeof returned !== 'string') throw unavailable();
+      const original = normalizePatientMessage(currentDraft[field]).trim();
+      if (verdict.status === 'keep' && returned && normalizePatientMessage(returned).trim() !== original) throw unavailable();
+      const text = verdict.status === 'keep' ? original : normalizePatientMessage(returned).trim();
+      if (!text || /###\d+###|```/.test(text) || findDisclosedPrescription(text, names)) throw unavailable();
+      result[field] = text;
+      if (text !== original) changed = true;
     }
+    if ((verdict.status === 'revise' && !changed) ||
+        /(?:^|\n)\s*(속마음|가이드|거절 시|핵심)\s*[:：]/.test(result.responseDraft)) throw unavailable();
+    if (publicReply) {
+      const text = result.responseDraft;
+      const body = text.slice(PUBLIC_REVIEW_GREETING.length).trim();
+      if (!text.startsWith(PUBLIC_REVIEW_GREETING) || !/[가-힣]/u.test(body) || body.includes(PUBLIC_REVIEW_GREETING)) {
+        throw unavailable();
+      }
+    }
+    try {
+      effects?.validate(verdict, result.responseDraft, input.symptoms);
+    } catch (error) {
+      if (!(error instanceof IncompleteEffectReview)) throw error;
+      effectRepair = effectFailure(error, 'free', attempt);
+      if (attempt === 2) throw error;
+      currentDraft = result;
+      continue;
+    }
+    return result;
   }
-  effects?.validate(verdict, result.responseDraft, input.symptoms);
-  return result;
+  throw unavailable();
 }
 
 export async function reviewFixedSymptoms(input: ReviewInput, draft: string, effectDraft = '') {
@@ -125,32 +147,47 @@ export async function reviewFixedSymptoms(input: ReviewInput, draft: string, eff
   const spec = effectReviewFor(input.input, input.direction, input.prescriptionName);
   const withEffects = spec.names.length > 0;
   const slotInstruction = 'effectDraft는 별도의 작성자가 쓴 효과 문단 초안이다. 원자료와 독립적으로 대조하고, 증상 나열·효과 누락·과장이 있으면 바로잡은 최종 문단만 effectParagraph에 넣는다. 이번 환자의 처방이 어떤 작용으로 어떤 불편에 도움이 되는지 약 이름 없이 간결하게 전한다. 처방의 대상이 아니거나 설명할 수 있는 효과가 없으면 빈 문자열이다. 고정문구·복용법·인사·내원 안내·직원 지침을 되풀이하지 않는다. patientQuote에는 이 문단에서 해당 효과를 설명한 문장 전체를 그대로 인용한다. 이 문단의 모든 문장은 적어도 하나의 patientQuote에 포함되어야 한다.';
-  const verdict = await requestVerdict(withEffects ? [fixed, spec.instruction, slotInstruction].join('\n') : fixed,
-    { context: input, terms, draft, effectDraft, effectPrescriptionNames: spec.names }, {
-    type: 'OBJECT', properties: { ...spec.properties, ...(withEffects && { effectParagraph: { type: 'STRING' } }), items: { type: 'ARRAY', items: {
-      type: 'OBJECT', properties: {
-        index: { type: 'INTEGER' },
-        kind: { type: 'STRING', enum: ['symptom', 'prescription', 'uncertain'] },
-      }, required: ['index', 'kind'],
-    } } }, required: ['items', ...spec.required, ...(withEffects ? ['effectParagraph'] : [])],
-  });
-  if (!Array.isArray(verdict.items) || verdict.items.length !== terms.length) throw unavailable();
-  const selected: string[] = [];
-  for (const [index, term] of terms.entries()) {
-    const item = verdict.items[index];
-    if (!item || item.index !== index || !['symptom', 'prescription', 'uncertain'].includes(item.kind)) throw unavailable();
-    const check = inspectSymptomField(term, names);
-    // Only the local classifier or a named prescription in the source may justify removing a term.
-    if (item.kind === 'prescription' && check.prescriptions.length && !check.symptoms && !check.error) continue;
-    if (item.kind !== 'symptom' || check.error || check.prescriptions.length || term.length > 160 ||
-        /[\x00-\x1f\\#`]/.test(term) ||
-        /^(?:없음|모름|미정|미입력|미지정|정보 없음|증상|질환|처방명|한약|탕약|약)$/u.test(term)) throw new FixedSymptomInputError();
-    selected.push(term);
+  let currentEffectDraft = effectDraft;
+  let effectRepair: EffectRepair | undefined;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const instruction = withEffects ? [fixed, spec.instruction, slotInstruction].join('\n') : fixed;
+    const verdict = await requestVerdict(instruction + (effectRepair ? '\n' + effectRepairInstruction : ''),
+      { context: input, terms, draft, effectDraft: currentEffectDraft, effectPrescriptionNames: spec.names, effectRepair }, {
+      type: 'OBJECT', properties: { ...spec.properties, ...(withEffects && { effectParagraph: { type: 'STRING' } }), items: { type: 'ARRAY', items: {
+        type: 'OBJECT', properties: {
+          index: { type: 'INTEGER' },
+          kind: { type: 'STRING', enum: ['symptom', 'prescription', 'uncertain'] },
+        }, required: ['index', 'kind'],
+      } } }, required: ['items', ...spec.required, ...(withEffects ? ['effectParagraph'] : [])],
+    });
+    if (!Array.isArray(verdict.items) || verdict.items.length !== terms.length) throw unavailable();
+    const selected: string[] = [];
+    for (const [index, term] of terms.entries()) {
+      const item = verdict.items[index];
+      if (!item || item.index !== index || !['symptom', 'prescription', 'uncertain'].includes(item.kind)) throw unavailable();
+      const check = inspectSymptomField(term, names);
+      // Only the local classifier or a named prescription in the source may justify removing a term.
+      if (item.kind === 'prescription' && check.prescriptions.length && !check.symptoms && !check.error) continue;
+      if (item.kind !== 'symptom' || check.error || check.prescriptions.length || term.length > 160 ||
+          /[\x00-\x1f\\#`]/.test(term) ||
+          /^(?:없음|모름|미정|미입력|미지정|정보 없음|증상|질환|처방명|한약|탕약|약)$/u.test(term)) throw new FixedSymptomInputError();
+      selected.push(term);
+    }
+    const effectParagraph = withEffects ? verdict.effectParagraph : '';
+    if (!isFixedEffectParagraph(effectParagraph) || findDisclosedPrescription(effectParagraph, names)) throw unavailable();
+    let effects: string[];
+    try {
+      effects = spec.validate(verdict, effectParagraph, input.symptoms);
+    } catch (error) {
+      if (!(error instanceof IncompleteEffectReview)) throw error;
+      effectRepair = effectFailure(error, 'fixed', attempt);
+      if (attempt === 2) throw error;
+      currentEffectDraft = effectParagraph;
+      continue;
+    }
+    const unreviewed = effects.reduce((remaining, quote) => remaining.replaceAll(quote, ''), effectParagraph);
+    if (Boolean(effects.length) !== Boolean(effectParagraph) || /[^\s.!?,。]/u.test(unreviewed)) throw unavailable();
+    return { terms: selected, effectParagraph };
   }
-  const effectParagraph = withEffects ? verdict.effectParagraph : '';
-  if (!isFixedEffectParagraph(effectParagraph) || findDisclosedPrescription(effectParagraph, names)) throw unavailable();
-  const effects = spec.validate(verdict, effectParagraph, input.symptoms);
-  const unreviewed = effects.reduce((remaining, quote) => remaining.replaceAll(quote, ''), effectParagraph);
-  if (Boolean(effects.length) !== Boolean(effectParagraph) || /[^\s.!?,。]/u.test(unreviewed)) throw unavailable();
-  return { terms: selected, effectParagraph };
+  throw unavailable();
 }

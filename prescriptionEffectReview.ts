@@ -10,23 +10,45 @@ const effectSchema = { type: 'ARRAY', items: { type: 'OBJECT', properties: {
   action: { type: 'STRING' }, patientQuote: { type: 'STRING' }, sourceQuote: { type: 'STRING' },
 }, required: ['index', 'kind', 'action', 'patientQuote', 'sourceQuote'] } };
 
+export type EffectReviewFailure = 'missing_entries' | 'invalid_entry' | 'invalid_index' |
+  'nonspecific_action' | 'duplicate_action' | 'missing_patient_evidence' |
+  'ungrounded_action' | 'missing_source_evidence' | 'invalid_classification';
+
 export class IncompleteEffectReview extends Error {
   readonly status = 503;
-  constructor() { super('환자 문자에서 한약의 작용 설명을 확인하지 못했습니다. 입력을 유지했으니 다시 생성해 주세요.'); }
+  readonly reason: EffectReviewFailure;
+  readonly index?: number;
+  constructor(reason: EffectReviewFailure = 'missing_entries', index?: number) {
+    super('환자 문자에서 한약의 작용 설명을 확인하지 못했습니다. 입력을 유지했으니 다시 생성해 주세요.');
+    this.reason = reason;
+    this.index = index;
+  }
 }
 
-function incomplete(): never {
-  throw new IncompleteEffectReview();
+function incomplete(reason: EffectReviewFailure, index?: number): never {
+  throw new IncompleteEffectReview(reason, index);
+}
+
+// Permit layout differences only, and retain the actual text for template checks.
+// In particular, punctuation, negation and word order must remain unchanged.
+function quotedText(text: string, quote: string): string | undefined {
+  const trimmed = quote.trim();
+  if (!trimmed) return undefined;
+  const pattern = trimmed.split(/\s+/u)
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('\\s+');
+  return new RegExp(pattern, 'u').exec(text)?.[0];
 }
 
 // Remove symptom labels and generic promises before accepting the reviewer's cited action.
 function hasSpecificAction(action: string, symptoms: string): boolean {
-  if (action.length < 4 || /복용|보관|연락|예약|내원|식후|식전|준비해/u.test(action)) return false;
+  // '식후 졸림' is a symptom, not a dosing instruction. Reject actual directions
+  // instead of rejecting every mention of a meal's timing.
+  if (action.length < 4 || /보관|연락|예약|내원|준비해|드세요|드십시오|드시기|드시고|먹어\s*주|먹으세요|하루\s*(?:\d+|한|두|세)\s*(?:번|회)|(?:\d+|한|두|세)\s*시간\s*(?:이상\s*)?간격/u.test(action)) return false;
   let remaining = action;
   const labels = symptoms.match(/[\p{L}\p{N}]+/gu) ?? [];
   for (const label of labels.sort((a,b) => b.length - a.length)) remaining = remaining.replaceAll(label, ' ');
   return (remaining.match(/[\p{L}\p{N}]+/gu) ?? []).some(word => word.length >= 2 &&
-    !/^(?:관련|증상|질환|불편|모두|모든|함께|동시|개선|완화|치료|해결|호전|회복|도움|돕기|돕는|도와|위한|위해|있도록|있게|이번|한약|처방|준비|목표|효과|꾸준|전반|전신|몸의|몸을|상태|균형을|잡아|그리고|하거나|하고|하는|합니다|드립니다|있습니다|위하|시키|해드|드리|줄여|덜어|대한|에서|으로|까지|에도)/u.test(word));
+    !/^(?:관련|증상|질환|불편|모두|모든|함께|동시|개선|완화|치료|해결|호전|회복|도움|돕기|돕는|도와|위한|위해|있도록|있게|이번|한약|처방|준비|목표|효과|꾸준|전반|전신|몸의|몸을|상태|균형을|잡아|그리고|또는|식후|식전|복용|약을|약은|약과|정해|정량|규칙|주세요|주십|부탁|하거나|하고|하는|합니다|드립니다|있습니다|위하|시키|해드|드리|줄여|덜어|대한|에서|으로|까지|에도)/u.test(word));
 }
 
 type EffectItem = { index?: unknown; kind?: unknown; action?: unknown; patientQuote?: unknown; sourceQuote?: unknown };
@@ -38,30 +60,43 @@ export function effectReviewFor(message: string, direction: string, prescription
   function validate(verdict: EffectVerdict, patientText: string, symptoms = ''): string[] {
     if (!names.length) return [];
     const items = verdict.formulaEffects;
-    if (!Array.isArray(items) || items.length !== names.length) return incomplete();
+    if (!Array.isArray(items) || items.length !== names.length) return incomplete('missing_entries');
+    const indexed = new Map<number, EffectItem>();
+    for (const item of items as EffectItem[]) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return incomplete('invalid_entry');
+      if (typeof item.index !== 'number' || !Number.isInteger(item.index) ||
+          item.index < 0 || item.index >= names.length || indexed.has(item.index)) {
+        return incomplete('invalid_index');
+      }
+      indexed.set(item.index, item);
+    }
     const quotes = new Set<string>(), actions = new Set<string>();
     for (const [index, name] of names.entries()) {
-      const item: EffectItem | null = items[index];
-      if (!item || item.index !== index || typeof item.action !== 'string' ||
-          typeof item.patientQuote !== 'string' || typeof item.sourceQuote !== 'string') return incomplete();
+      const item = indexed.get(index);
+      if (!item || typeof item.action !== 'string' ||
+          typeof item.patientQuote !== 'string' || typeof item.sourceQuote !== 'string') return incomplete('invalid_entry', index);
       const action = item.action.trim(), quote = item.patientQuote.trim(), source = item.sourceQuote.trim();
       if (item.kind === 'explained') {
         const key = action.replace(/[\p{P}\s]/gu, '');
-        if (!hasSpecificAction(action, symptoms) || actions.has(key) || quote.length < 8 ||
-            !patientText.includes(quote) || !quote.includes(action)) return incomplete();
-        if (!isKnownPrescriptionName(name) && (!source.includes(action) ||
-            !sources.some(s => s.includes(source)))) return incomplete();
+        if (!hasSpecificAction(action, symptoms)) return incomplete('nonspecific_action', index);
+        if (actions.has(key)) return incomplete('duplicate_action', index);
+        const patientQuote = quotedText(patientText, quote);
+        if (quote.length < 8 || !patientQuote || !quotedText(patientQuote, action)) {
+          return incomplete('missing_patient_evidence', index);
+        }
+        if (!isKnownPrescriptionName(name) && (!quotedText(source, action) ||
+            !sources.some(s => quotedText(s, source)))) return incomplete('ungrounded_action', index);
         actions.add(key);
-        quotes.add(quote);
+        quotes.add(patientQuote);
         continue;
       }
-      if (action || quote || !source || !sources.some(s => s.includes(source)) ||
-          !(getEffectPrescriptionNames(source, '', prescriptionName.includes(source) ? source : '').includes(name) || source.trim() === name)) return incomplete();
+      if (action || quote || !source || !sources.some(s => quotedText(s, source)) ||
+          !(getEffectPrescriptionNames(source, '', quotedText(prescriptionName, source) ? source : '').includes(name) || source.trim() === name)) return incomplete('missing_source_evidence', index);
       if (item.kind === 'unidentified' && !isKnownPrescriptionName(name)) continue;
       if (item.kind === 'background' &&
           /이전|예전|과거|당시|지난|전에는|전에|중단|보류|않|아니|다른|가족|보호자|비교|제외|무관|미정|아직|예약|문의만|검토|예시|알레르기/u.test(source) &&
           !/(?:이전|지난번|예전)과\s*(?:같|동일)|이번에도\s*(?:같|동일)/u.test(source)) continue;
-      return incomplete();
+      return incomplete('invalid_classification', index);
     }
     return [...quotes];
   }
