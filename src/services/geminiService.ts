@@ -2,7 +2,7 @@ import { authFetch } from '../authFetch';
 import { buildSystemInstruction } from '../constants';
 import type { AnalyzeParams } from '../types';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage } from '../patientMessageText';
-import { isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
+import { canStartHerbalCheckIn, isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
 import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
 import { getEnteredPrescriptionNames, getEffectPrescriptionNames, getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
 import { isPublicReview, publicReviewContext, publicReviewPrompt, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
@@ -26,6 +26,7 @@ export const analyzePatientMessage = async (form: AnalyzeParams) => {
   const fixed = isHerbalFollowup(params);
 
   const { input, direction, selectedTreatments, selectedSituations } = params;
+  const herbalCheckIn = !input.trim() && canStartHerbalCheckIn(params, symptoms);
   const prescriptionName = params.prescriptionName || '';
   const prescriptionNames = [...new Set([...field.prescriptions, ...getEnteredPrescriptionNames(prescriptionName), ...getReferencedPrescriptions(input, direction)])];
   const treatments = selectedTreatments.filter(t => !SYMPTOM_TREATMENT_OPTIONS.includes(t));
@@ -36,7 +37,7 @@ export const analyzePatientMessage = async (form: AnalyzeParams) => {
   ].filter(Boolean).join("\n");
 
   const prompt = publicReply ? publicReviewPrompt(input, direction) : `[환자 및 상황 정보]
-${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보 없음"}
+${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input.trim() ? input : "정보 없음"}
 선택된 치료: ${treatments.join(", ") || "미지정"}
 응대 상황: ${selectedSituations.join(", ") || "미지정"}
 추가 요청: ${direction || "없음"}`;
@@ -52,7 +53,7 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input || "정보
         patientName: params.patientName || '', symptoms: params.symptoms || '', prescriptionName,
         input, direction, selectedTreatments, selectedSituations
       },
-      systemInstruction: buildSystemInstruction(selectedTreatments, selectedSituations, [symptoms, input].filter(Boolean).join('\n')),
+      systemInstruction: buildSystemInstruction(selectedTreatments, selectedSituations, [symptoms, input].filter(Boolean).join('\n'), herbalCheckIn),
       prompt,
       ...(prescriptionNames.length > 0 && { prescriptionNames })
     })

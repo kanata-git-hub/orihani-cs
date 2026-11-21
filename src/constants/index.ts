@@ -1,5 +1,5 @@
 import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms.ts';
-import { HERBAL_FOLLOWUP_SITUATION } from '../herbalFollowup.ts';
+import { HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION } from '../herbalFollowup.ts';
 import { herbalDirectionsFor } from '../herbalDirections.ts';
 import { isPublicReview, PUBLIC_REVIEW_STYLE } from '../publicReview.ts';
 
@@ -8,7 +8,7 @@ export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약
 export const SITUATIONS = [
   HERBAL_FOLLOWUP_SITUATION,
   "신환 상담/문의", "예약 유도/확정", "예약 변경/취소", "치료 후 반응/통증", 
-  "비용/패키지 상담", "한약 복용/경과", "컴플레인/불만", "단순 안부/리콜", "원장", "리뷰 답변"
+  "비용/패키지 상담", HERBAL_PROGRESS_SITUATION, "컴플레인/불만", "단순 안부/리콜", "원장", "리뷰 답변"
 ];
 
 // Presentation groups preserve the existing option values used by saved drafts and prompts.
@@ -20,7 +20,7 @@ export const TREATMENT_GROUPS = [
 
 export const SITUATION_GROUPS = [
   { title: "상담·예약", options: ["신환 상담/문의", "예약 유도/확정", "예약 변경/취소", "비용/패키지 상담"] },
-  { title: "치료 후 관리", options: [HERBAL_FOLLOWUP_SITUATION, "한약 복용/경과", "치료 후 반응/통증", "단순 안부/리콜"] },
+  { title: "치료 후 관리", options: [HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, "치료 후 반응/통증", "단순 안부/리콜"] },
   { title: "기타 응대", options: ["컴플레인/불만", "리뷰 답변"] },
   { title: "작성자", options: ["원장"] }
 ];
@@ -102,15 +102,18 @@ const OUTPUT_FORMAT = `**[출력 형식]**
 
 핵심: (현장 포인트 1줄)`;
 
-export function buildClinicReference(treatments: string[], situations: string[], clinicalText = ''): string {
+export function buildClinicReference(treatments: string[], situations: string[], clinicalText = '', herbalCheckIn = false): string {
   if (isPublicReview(situations)) return PUBLIC_REVIEW_STYLE;
   const instructions: string[] = [];
   const accident = treatments.includes('교통사고');
   const procedure = treatments.some(t => ['침', '약침', '초음파약침', '도침'].includes(t));
-  const untaggedConsult = treatments.every(t => SYMPTOM_TREATMENT_OPTIONS.includes(t)) && !situations.includes('한약 복용/경과') && !/한약|탕약|복용/.test(clinicalText);
+  const untaggedConsult = treatments.every(t => SYMPTOM_TREATMENT_OPTIONS.includes(t)) && !situations.includes(HERBAL_PROGRESS_SITUATION) && !/한약|탕약|복용/.test(clinicalText);
   const shoulderInquiry = /오십견|석회성\s*건염/.test(clinicalText);
   const discussesProcedure = procedure || (untaggedConsult && (shoulderInquiry || /허리|어깨|무릎|손목|발목|목\s*통증|도침|약침/.test(clinicalText)));
 
+  if (herbalCheckIn) {
+    instructions.push('한의원에서 먼저 보내는 한약 복용 경과 확인 문자입니다. 환자에게 한약을 잘 드시고 계신지, 복용 중 불편한 점은 없는지, 입력한 질환·증상은 전과 비교해 어떤지 자연스럽게 물어보십시오. 환자가 이미 문의하거나 답변했다고 쓰지 말고, 호전·악화나 복용 기간을 미리 단정하지 마십시오.');
+  }
   if (accident) instructions.push(ACCIDENT_GUIDANCE);
   if (discussesProcedure && situations.includes('치료 후 반응/통증')) {
     instructions.push('입력에 실제 시술과 환자의 불편이 명시된 경우에만 시술 후 관리 방법을 설명하십시오. 무리한 운동을 쉬고 필요시 다음 날 내원해 경과를 확인하도록 안내하십시오.');
@@ -126,7 +129,7 @@ export function buildClinicReference(treatments: string[], situations: string[],
   return instructions.join('\n\n');
 }
 
-export function buildSystemInstruction(treatments: string[], situations: string[], clinicalText = ''): string {
+export function buildSystemInstruction(treatments: string[], situations: string[], clinicalText = '', herbalCheckIn = false): string {
   if (isPublicReview(situations)) return PUBLIC_REVIEW_STYLE + `
 
 세 구분자를 순서대로 출력한다. 직원용 메모는 간결하게 쓰고 공개 답글에는 넣지 않는다. 구체적인 처방명은 직원 메모에서도 생략한다.
@@ -138,6 +141,6 @@ export function buildSystemInstruction(treatments: string[], situations: string[
 ###3###
 거절 시: (직원용 대응이 필요 없으면 "해당 없음")
 핵심: (게시 전 확인할 점 한 줄)`;
-  return [BASE_INSTRUCTION, buildClinicReference(treatments, situations, clinicalText),
+  return [BASE_INSTRUCTION, buildClinicReference(treatments, situations, clinicalText, herbalCheckIn),
     situations.includes('원장') ? DIRECTOR_VOICE : '', OUTPUT_FORMAT].filter(Boolean).join('\n\n');
 }
