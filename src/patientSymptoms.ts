@@ -39,8 +39,8 @@ export function resolvePatientSymptoms(params: SymptomInput, inspection = inspec
   }).join(', ');
 }
 
-export function symptomInputError(inspection: ReturnType<typeof inspectSymptomField>, effectiveSymptoms: string): string | null {
-  if (inspection.error) return inspection.error;
+export function symptomInputError(inspection: ReturnType<typeof inspectSymptomField>, effectiveSymptoms: string, prescriptionFieldVisible = true): string | null {
+  if (inspection.error) return prescriptionFieldVisible ? inspection.error : '질환·증상에는 실제 증상만 입력하고, 복용 전후 상황은 메시지 칸에 적어 주세요.';
   if (inspection.prescriptions.length && !effectiveSymptoms) {
     return '질환·증상에는 환자가 실제로 겪는 증상을 입력하거나 아래에서 선택해 주세요.';
   }

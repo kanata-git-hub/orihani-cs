@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { buildClinicReference, buildSystemInstruction } from './src/constants/index.ts';
-import { buildHerbalFollowup, canStartHerbalCheckIn, fixedEffectLengthInstruction, fixedEffectLengthTarget, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
+import { buildPrivatePatientPrompt } from './src/patientPrompt.ts';
+import { buildHerbalFollowup, canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, fixedEffectLengthInstruction, fixedEffectLengthTarget, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
 import { herbalDirectionsFor, withHerbalDirections } from './src/herbalDirections.ts';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
 import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
@@ -62,17 +63,21 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         res.status(422).json({ code: 'PATIENT_INPUT', error });
         return;
       }
-      const context = publicReply ? publicReviewContext(submitted.input, submitted.direction) : submitted;
-      const inspected = inspectPatientSymptomInput(context);
+      const form = publicReply ? publicReviewContext(submitted.input, submitted.direction) : submitted;
+      const inspected = inspectPatientSymptomInput(form);
+      const staffProgress = isStaffHerbalProgress(form.selectedSituations);
+      const context = staffProgress ? staffHerbalProgressContext(form, inspected.symptoms) : form;
       let symptoms = resolvePatientSymptoms(context, inspected);
       const fixed = isHerbalFollowup(context);
-      const problem = fixed ? herbalFollowupError(context) : symptomInputError(inspected, symptoms);
+      const problem = fixed ? herbalFollowupError(context) : symptomInputError(inspected, symptoms, !staffProgress);
       if (problem) {
         res.status(422).json({ code: 'PATIENT_INPUT', error: problem });
         return;
       }
-      const prescriptionReferences = [...new Set([...inspected.prescriptions, ...getEnteredPrescriptionNames(context.prescriptionName), ...getReferencedPrescriptions(context.input, context.direction)])];
-      const privateNames = [...prescriptionNames, ...prescriptionReferences];
+      const fieldNames = [...inspected.prescriptions, ...getEnteredPrescriptionNames(form.prescriptionName)];
+      const messageNames = getReferencedPrescriptions(context.input, context.direction);
+      const prescriptionReferences = staffProgress ? messageNames : [...new Set([...fieldNames, ...messageNames])];
+      const privateNames = [...prescriptionNames, ...fieldNames, ...messageNames];
       let text: string;
       let effectParagraph: string | undefined;
       if (fixed) {
@@ -99,6 +104,7 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         const writingRules = patientContext
           ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText, herbalCheckIn) : systemInstruction;
         let writingPrompt = publicReply ? publicReviewPrompt(context.input, context.direction) : prompt;
+        if (staffProgress) writingPrompt = buildPrivatePatientPrompt(context, symptoms);
         if (!publicReply && context.prescriptionName.trim()) {
           writingPrompt += '\n\n직원이 이번 환자에게 사용한 처방명(내부 참고용, 이름 출력 금지, 작용 설명에 반영)\n' +
             JSON.stringify({ prescriptionName: context.prescriptionName });

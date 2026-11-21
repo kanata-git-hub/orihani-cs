@@ -13,12 +13,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, canStartHerbalCheckIn, isHerbalFollowup, herbalFollowupTreatmentError } from '../herbalFollowup';
+import { DIRECTOR_AUTHOR, HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, isHerbalFollowup, herbalFollowupTreatmentError } from '../herbalFollowup';
 import { isPublicReview, publicReviewContext, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
 
-const DIRECTOR_AUTHOR = '원장';
 const DIRECTOR_EMAILS = new Set(['orihani001@gmail.com', 'kanata840@gmail.com']);
 
 const fieldColors = (invalid: boolean) => invalid
@@ -64,11 +63,13 @@ export function ClinicTool() {
   const [error, setError] = useState<string | null>(null);
   
   const resultRef = useRef<HTMLDivElement>(null);
-  const params = { patientName, symptoms, prescriptionName, input, direction, selectedTreatments, selectedSituations };
-  const symptomField = inspectPatientSymptomInput(params);
+  const form = { patientName, symptoms, prescriptionName, input, direction, selectedTreatments, selectedSituations };
+  const symptomField = inspectPatientSymptomInput(form);
+  const staffProgress = isStaffHerbalProgress(selectedSituations);
+  const params = staffProgress ? staffHerbalProgressContext(form, symptomField.symptoms) : form;
   const effectiveSymptoms = resolvePatientSymptoms(params, symptomField);
   const publicReply = isPublicReview(selectedSituations);
-  const symptomError = publicReply ? null : symptomInputError(symptomField, effectiveSymptoms);
+  const symptomError = publicReply ? null : symptomInputError(symptomField, effectiveSymptoms, !staffProgress);
   const symptomChoices = selectedSymptomOptions(selectedTreatments);
   const showResolvedSymptoms = !symptomError && Boolean(effectiveSymptoms) &&
     (symptomChoices.length > 0 || symptomField.prescriptions.length > 0);
@@ -84,7 +85,9 @@ export function ClinicTool() {
   if (!messageOptional && !input.trim()) {
     if (publicReply) messageIssue = '방문자가 남긴 리뷰 원문이나 별점을 입력해 주세요.';
     else if (selectedSituations.includes(HERBAL_PROGRESS_SITUATION)) {
-      messageIssue = '환자 메시지나 상황을 적거나, 경과 확인용으로 환자 이름·질환·처방명을 입력해 주세요.';
+      messageIssue = staffProgress
+        ? '환자 메시지나 상황을 적거나, 경과 확인용으로 환자 이름과 질환·증상을 입력해 주세요.'
+        : '환자 메시지나 상황을 적거나, 경과 확인용으로 환자 이름·질환·처방명을 입력해 주세요.';
     } else messageIssue = '환자 메시지나 응대할 상황을 입력해 주세요.';
   }
   const issues = [
@@ -234,7 +237,7 @@ export function ClinicTool() {
           </div>
           {symptomField.prescriptions.length > 0 && !symptomError && (
             <p className="text-base text-[#552c24]" role="status">
-              {isFollowup ? '처방명을 고정 안내 문자에서 제외했습니다.' : '처방명은 질환·증상에서 분리해 참고용으로만 사용합니다.'}
+              {staffProgress ? '직원 경과 확인에는 질환·증상만 반영합니다.' : isFollowup ? '처방명을 고정 안내 문자에서 제외했습니다.' : '처방명은 질환·증상에서 분리해 참고용으로만 사용합니다.'}
             </p>
           )}
           {showResolvedSymptoms && (
@@ -242,7 +245,7 @@ export function ClinicTool() {
               반영할 질환·증상: {effectiveSymptoms}
             </p>
           )}
-          <div className="space-y-2">
+          {!staffProgress && <div className="space-y-2">
             <label htmlFor="patient-prescription" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
               <Stethoscope size={20} /> 사용한 처방명
             </label>
@@ -254,7 +257,7 @@ export function ClinicTool() {
             <p id="prescription-help" className="text-sm sm:text-base text-[#552c24]/80">
               처방명은 내부 참고용입니다. 환자 문안에는 이름을 숨기고 효과를 설명합니다.
             </p>
-          </div>
+          </div>}
           </>}
 
           <div className="space-y-4">

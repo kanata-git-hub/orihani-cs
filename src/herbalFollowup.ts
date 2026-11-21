@@ -4,6 +4,7 @@ import { getEnteredPrescriptionNames } from './prescriptionFields.ts';
 import { isPublicReview } from './publicReview.ts';
 import { PATIENT_MESSAGE_LENGTH_TARGET } from './patientMessageText.ts';
 
+export const DIRECTOR_AUTHOR = '원장';
 export const HERBAL_PROGRESS_SITUATION = '한약 복용/경과';
 export const HERBAL_FOLLOWUP_SITUATION = '일반한약 첫 15일 마무리 안내';
 
@@ -11,10 +12,23 @@ export function isHerbalFollowup(params: Pick<AnalyzeParams, 'selectedSituations
   return params.selectedSituations.includes(HERBAL_FOLLOWUP_SITUATION);
 }
 
+function isOrdinaryHerbalProgress(situations: string[]): boolean {
+  return situations.includes(HERBAL_PROGRESS_SITUATION) &&
+    !situations.includes(HERBAL_FOLLOWUP_SITUATION) && !isPublicReview(situations);
+}
+
+export function isStaffHerbalProgress(situations: string[]): boolean {
+  return isOrdinaryHerbalProgress(situations) && !situations.includes(DIRECTOR_AUTHOR);
+}
+
+export function staffHerbalProgressContext(form: AnalyzeParams, symptoms: string): Required<AnalyzeParams> {
+  return { ...form, patientName: form.patientName ?? '', symptoms, prescriptionName: '' };
+}
+
 export function canStartHerbalCheckIn(params: AnalyzeParams, resolvedSymptoms: string): boolean {
-  return params.selectedSituations.includes(HERBAL_PROGRESS_SITUATION) &&
-    !isHerbalFollowup(params) && !isPublicReview(params.selectedSituations) &&
-    Boolean(params.patientName?.trim() && resolvedSymptoms.trim() && getEnteredPrescriptionNames(params.prescriptionName).length);
+  const situations = params.selectedSituations;
+  return isOrdinaryHerbalProgress(situations) && Boolean(params.patientName?.trim() && resolvedSymptoms.trim()) &&
+    (!situations.includes(DIRECTOR_AUTHOR) || getEnteredPrescriptionNames(params.prescriptionName).length > 0);
 }
 
 export function herbalFollowupTreatmentError(params: AnalyzeParams): string | null {

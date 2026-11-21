@@ -23,6 +23,7 @@ const rx = loadModule('src/prescriptionFields.ts');
 const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
 const directions = loadModule('src/herbalDirections.ts');
 const reviews = loadModule('src/publicReview.ts');
+const patientPrompt = loadModule('src/patientPrompt.ts', { './patientSymptoms.ts': symptoms });
 const format = loadModule('src/patientMessageText.ts');
 const followup = loadModule('src/herbalFollowup.ts', {
   './patientSymptoms.ts': symptoms, './prescriptionFields.ts': rx, './publicReview.ts': reviews, './patientMessageText.ts': format
@@ -37,6 +38,7 @@ function loadService(output) {
   const service = loadModule('src/services/geminiService.ts', {
     '../publicReview': reviews,
     '../patientSymptoms': symptoms,
+    '../patientPrompt': patientPrompt,
     '../prescriptionFields': rx,
     '../patientMessageText': format,
     '../herbalFollowup': followup,
@@ -158,6 +160,28 @@ test('a clinic-initiated herbal check-in uses the patient fields without creatin
   }
   await service.generate({ ...form, input: '복용 후 속은 편한데 조금 더부룩합니다.' });
   assert.doesNotMatch(service.request().systemInstruction, /한의원에서 먼저 보내는 한약 복용 경과 확인 문자/);
+});
+
+test('staff herbal progress uses the name and symptoms and omits a previous director prescription', async () => {
+  const form = { ...params, patientName: '가상', symptoms: '부종, 봄 제제', prescriptionName: '봄 제제',
+    input: '', selectedTreatments: [], selectedSituations: ['한약 복용/경과'] };
+  const service = loadService();
+  await service.generate(form);
+  const request = service.request();
+  assert.equal(request.patientContext.prescriptionName, '');
+  assert.equal(request.patientContext.symptoms, '부종');
+  assert.doesNotMatch(JSON.stringify(request), /봄\s*제제/);
+  assert.match(request.systemInstruction, /직원 명의의 경과 확인/);
+  assert.equal(followup.canStartHerbalCheckIn({ ...form, prescriptionName: '' }, '부종'), true);
+  assert.equal(followup.canStartHerbalCheckIn({ ...form, patientName: ' ' }, '부종'), false);
+  assert.equal(followup.canStartHerbalCheckIn(form, ''), false);
+  await service.generate({ ...form, symptoms: '', prescriptionName: '', selectedTreatments: ['소화불량'] });
+  assert.match(service.request().prompt, /질환·증상: 소화불량/);
+  assert.match(service.request().systemInstruction, /직원 명의의 경과 확인/);
+  await service.generate({ ...form, input: '부기는 전보다 줄었어요.' });
+  assert.match(service.request().prompt, /부기는 전보다 줄었어요/);
+  assert.doesNotMatch(service.request().systemInstruction, /직원 명의의 경과 확인/);
+  await assert.rejects(loadService('봄 제제입니다.').generate(form), /처방명이 포함/);
 });
 
 test('restored trait selections cannot reach the ordinary AI request', async () => {

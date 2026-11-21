@@ -21,6 +21,7 @@ test('entered prescription names retain private names and named compounds', () =
 test('a dedicated prescription reaches ordinary and fixed writing and review, but not a public reply', async () => {
   const app = express();
   let seenPrompt = '', seenName = '';
+  let seenReferences: string[] = [];
   let providerCalls = 0;
   const effect = '수분 흐름을 조절해 붓기가 가라앉도록 돕습니다.';
   const draft = { strategy:'가이드', responseDraft:effect, staffTip:'팁' };
@@ -33,6 +34,7 @@ test('a dedicated prescription reaches ordinary and fixed writing and review, bu
   }, (_req, _res, next) => next(), {
     async reviewFree(source) {
       seenName = source.prescriptionName ?? '';
+      seenReferences = source.prescriptionReferences ?? [];
       if (source.prescriptionName === '원내 A방') return { ...draft, responseDraft:'원내 A방을 드세요.' };
       return draft;
     },
@@ -55,6 +57,15 @@ test('a dedicated prescription reaches ordinary and fixed writing and review, bu
     assert.match(seenPrompt, /prescriptionName.*오령산/);
     assert.equal(seenName, '오령산');
     assert.doesNotMatch(JSON.stringify(await ordinary.json()), /오령산/);
+
+    const staffContext = { ...context, selectedSituations: ['한약 복용/경과'], input: '', symptoms: '부종, 오령산' };
+    assert.equal((await submit(staffContext)).status, 200);
+    assert.equal(seenName, '');
+    assert.deepEqual(seenReferences, []);
+    assert.match(seenPrompt, /질환·증상: 부종/);
+    assert.doesNotMatch(seenPrompt, /오령산|prescriptionName|현재 약을 안내해 주세요/);
+    assert.equal((await submit({ ...staffContext, selectedSituations: ['원장', '한약 복용/경과'] })).status, 200);
+    assert.equal(seenName, '오령산');
 
     const fixed = await submit({ ...context, input:'', selectedSituations:[HERBAL_FOLLOWUP_SITUATION] });
     assert.equal(fixed.status, 200);
