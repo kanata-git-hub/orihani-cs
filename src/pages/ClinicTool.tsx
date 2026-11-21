@@ -18,6 +18,9 @@ import { isPublicReview, publicReviewContext, REVIEW_FOLLOWUP_CONFLICT } from '.
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
 
+const DIRECTOR_AUTHOR = '원장';
+const DIRECTOR_EMAILS = new Set(['orihani001@gmail.com', 'kanata840@gmail.com']);
+
 const fieldColors = (invalid: boolean) => invalid
   ? 'border-2 border-red-600 bg-red-50 focus:border-red-700 focus:ring-red-300'
   : 'border border-[#552c24]/20 bg-white focus:border-[#ffcd4a] focus:ring-[#ffcd4a]/50';
@@ -41,7 +44,17 @@ export function ClinicTool() {
   const [input, setInput] = useLocalStorage<string>('app_input', "");
   const [direction, setDirection] = useLocalStorage<string>('app_direction', "");
   const [selectedTreatments, setSelectedTreatments] = useLocalStorage<string[]>('app_treatments', []);
-  const [selectedSituations, setSelectedSituations] = useLocalStorage<string[]>('app_situations', []);
+  const [storedSituations, setStoredSituations] = useLocalStorage<string[]>('app_situations', []);
+  const hasFormInput = Boolean(patientName || symptoms || prescriptionName || input || direction || selectedTreatments.length);
+  const directorByDefault = DIRECTOR_EMAILS.has(user?.email?.trim().toLowerCase() ?? '');
+  // Older drafts stored the author alongside the other situation tags.
+  const hasStoredDraft = hasFormInput || storedSituations.length > 0;
+  const [directorOverride, setDirectorOverride] = useLocalStorage<boolean | null>(
+    'app_director_author', hasStoredDraft ? storedSituations.includes(DIRECTOR_AUTHOR) : null
+  );
+  const directorSelected = directorOverride ?? directorByDefault;
+  const situationTags = storedSituations.filter(tag => tag !== DIRECTOR_AUTHOR);
+  const selectedSituations = directorSelected ? [...situationTags, DIRECTOR_AUTHOR] : situationTags;
   const [isLoading, setIsLoading] = useState(false);
   const [savedResult, setResult] = useLocalStorage<(AnalysisResult & { reviewVersion: number; owner: string }) | null>('app_result', null);
   const editVersion = useRef(0);
@@ -75,7 +88,7 @@ export function ClinicTool() {
     { id: 'patient-situation', label: publicReply ? '공개 리뷰' : '환자 메시지 또는 상황', problem: messageIssue },
   ].filter(field => field.problem);
   const canSubmit = issues.length === 0;
-  const formEmpty = !patientName && !symptoms && !prescriptionName && !input && !direction && !selectedTreatments.length && !selectedSituations.length;
+  const formEmpty = !hasFormInput && situationTags.length === 0 && directorSelected === directorByDefault;
   const cached = user && formEmpty && savedResult?.reviewVersion === MESSAGE_REVIEW_VERSION && savedResult.owner === user.uid ? savedResult : null;
   const patientText = typeof cached?.responseDraft === 'string' ? normalizePatientMessage(cached.responseDraft) : '';
   const result = patientText.trim() ? cached : null;
@@ -94,7 +107,12 @@ export function ClinicTool() {
   };
   const toggleSituation = (s: string) => {
     invalidateResult();
-    setSelectedSituations(prev => {
+    if (s === DIRECTOR_AUTHOR) {
+      setDirectorOverride(current => !(current ?? directorByDefault));
+      return;
+    }
+    setStoredSituations(previous => {
+      const prev = previous.filter(tag => tag !== DIRECTOR_AUTHOR);
       if (prev.includes(s)) return prev.filter(i => i !== s);
       const incompatible = s === '리뷰 답변' ? HERBAL_FOLLOWUP_SITUATION : s === HERBAL_FOLLOWUP_SITUATION ? '리뷰 답변' : undefined;
       return [...prev.filter(i => i !== incompatible), s];
@@ -116,7 +134,8 @@ export function ClinicTool() {
       const newResult = parseAnalysisResult(reviewed.text);
       clearTextFields();
       setSelectedTreatments([]);
-      setSelectedSituations([]);
+      setStoredSituations([]);
+      setDirectorOverride(null);
       setResult({ ...newResult, reviewVersion: MESSAGE_REVIEW_VERSION, owner: user.uid });
 
       try {
@@ -233,7 +252,7 @@ export function ClinicTool() {
 
           <div className="space-y-4">
             {!publicReply && <TagSelector id="treatment-options" error={showIssues ? treatmentIssue : null} icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />}
-            <TagSelector id="situation-options" error={showIssues && conflictingModes ? REVIEW_FOLLOWUP_CONFLICT : null} icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ 원장: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
+            <TagSelector id="situation-options" error={showIssues && conflictingModes ? REVIEW_FOLLOWUP_CONFLICT : null} icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ [DIRECTOR_AUTHOR]: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
           </div>
 
           <div className="space-y-2">
