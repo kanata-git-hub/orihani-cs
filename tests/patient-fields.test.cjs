@@ -22,8 +22,10 @@ function loadModule(path, imports = {}) {
 const rx = loadModule('src/prescriptionFields.ts');
 const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
 const directions = loadModule('src/herbalDirections.ts');
-const followup = loadModule('src/herbalFollowup.ts', { './patientSymptoms.ts': symptoms });
 const reviews = loadModule('src/publicReview.ts');
+const followup = loadModule('src/herbalFollowup.ts', {
+  './patientSymptoms.ts': symptoms, './prescriptionFields.ts': rx, './publicReview.ts': reviews
+});
 const constants = loadModule('src/constants/index.ts', {
   '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms, '../herbalDirections.ts': directions, '../publicReview.ts': reviews
 });
@@ -137,6 +139,25 @@ test('invalid first 15-day requests fail without falling back to AI', async () =
     await assert.rejects(service.generate({ ...request, patientName: '김○○', symptoms: '피로', selectedTreatments: [treatment] }), /제외한 일반한약/);
   }
   assert.equal(service.calls(), 0);
+});
+
+test('a clinic-initiated herbal check-in uses the patient fields without creating an incoming message', async () => {
+  const service = loadService();
+  const form = { ...params, patientName: '가상', symptoms: '', prescriptionName: '반하사심탕', input: ' ',
+    selectedTreatments: ['소화불량'], selectedSituations: ['한약 복용/경과', '원장'] };
+  await service.generate(form);
+  const request = service.request();
+  assert.equal(request.mode, 'free');
+  assert.equal(request.patientContext.input, form.input);
+  assert.match(request.prompt, /질환·증상: 소화불량/);
+  assert.match(request.systemInstruction, /한의원에서 먼저 보내는 한약 복용 경과 확인 문자/);
+  for (const incomplete of [{ patientName: ' ' }, { prescriptionName: ' ' }, { selectedTreatments: [] },
+    { selectedSituations: ['예약 변경/취소'] }]) {
+    const changed = { ...form, ...incomplete };
+    assert.equal(followup.canStartHerbalCheckIn(changed, symptoms.resolvePatientSymptoms(changed)), false);
+  }
+  await service.generate({ ...form, input: '복용 후 속은 편한데 조금 더부룩합니다.' });
+  assert.doesNotMatch(service.request().systemInstruction, /한의원에서 먼저 보내는 한약 복용 경과 확인 문자/);
 });
 
 test('restored trait selections cannot reach the ordinary AI request', async () => {

@@ -13,7 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { HERBAL_FOLLOWUP_SITUATION, isHerbalFollowup, herbalFollowupTreatmentError } from '../herbalFollowup';
+import { HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, canStartHerbalCheckIn, isHerbalFollowup, herbalFollowupTreatmentError } from '../herbalFollowup';
 import { isPublicReview, publicReviewContext, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
@@ -73,13 +73,20 @@ export function ClinicTool() {
   const showResolvedSymptoms = !symptomError && Boolean(effectiveSymptoms) &&
     (symptomChoices.length > 0 || symptomField.prescriptions.length > 0);
   const isFollowup = isHerbalFollowup(params);
+  const checkInAvailable = canStartHerbalCheckIn(params, effectiveSymptoms);
+  const messageOptional = isFollowup || checkInAvailable;
   const conflictingModes = publicReply && isFollowup;
   const nameIssue = isFollowup && !publicReply && !patientName.trim() ? '환자 이름을 입력해 주세요.' : null;
   const symptomIssue = symptomError || (isFollowup && !publicReply && !effectiveSymptoms
     ? '질환·증상을 입력하거나 아래에서 소화불량·피로를 선택해 주세요.' : null);
   const treatmentIssue = publicReply ? null : herbalFollowupTreatmentError(params);
-  const messageIssue = !isFollowup && !input.trim()
-    ? (publicReply ? '방문자가 남긴 리뷰 원문이나 별점을 입력해 주세요.' : '환자 메시지나 응대할 상황을 입력해 주세요.') : null;
+  let messageIssue: string | null = null;
+  if (!messageOptional && !input.trim()) {
+    if (publicReply) messageIssue = '방문자가 남긴 리뷰 원문이나 별점을 입력해 주세요.';
+    else if (selectedSituations.includes(HERBAL_PROGRESS_SITUATION)) {
+      messageIssue = '환자 메시지나 상황을 적거나, 경과 확인용으로 환자 이름·질환·처방명을 입력해 주세요.';
+    } else messageIssue = '환자 메시지나 응대할 상황을 입력해 주세요.';
+  }
   const issues = [
     { id: 'patient-name', label: '환자 이름', problem: nameIssue },
     { id: 'patient-symptoms', label: '질환·증상', problem: symptomIssue },
@@ -257,14 +264,14 @@ export function ClinicTool() {
 
           <div className="space-y-2">
             <label htmlFor="patient-situation" className="text-lg sm:text-xl font-bold sm:tracking-widest text-[#552c24] flex items-center gap-2">
-              <MessageSquare size={20} className="shrink-0" /> {publicReply ? "방문자가 남긴 공개 리뷰" : "환자 메시지 또는 상황" + (isFollowup ? " (선택)" : "")}
+              <MessageSquare size={20} className="shrink-0" /> {publicReply ? "방문자가 남긴 공개 리뷰" : "환자 메시지 또는 상황" + (messageOptional ? " (선택)" : "")}
             </label>
             <textarea id="patient-situation"
               value={input} onChange={(e) => setInput(e.target.value)}
-              placeholder={publicReply ? "리뷰 원문 또는 별점 (예: 별점 5점)" : isFollowup ? "추가로 전달할 상황이 있으면 입력해 주세요." : "환자의 메시지를 붙여넣거나 상황을 적어 주세요."}
+              placeholder={publicReply ? "리뷰 원문 또는 별점 (예: 별점 5점)" : isFollowup ? "추가로 전달할 상황이 있으면 입력해 주세요." : checkInAvailable ? "비워 두면 복용 상태와 불편 여부를 묻는 문자를 만듭니다." : "환자의 메시지를 붙여넣거나 상황을 적어 주세요."}
               className={`w-full scroll-mt-20 h-40 sm:h-48 p-4 sm:p-6 rounded-2xl sm:rounded-3xl focus:ring-2 outline-none resize-y text-lg sm:text-2xl leading-[1.8] sm:leading-relaxed shadow-sm font-medium ${fieldColors(showIssues && Boolean(messageIssue))}`}
               aria-invalid={showIssues && Boolean(messageIssue)} aria-describedby={showIssues && messageIssue ? 'message-error' : undefined}
-              required={!isFollowup}
+              required={!messageOptional}
             />
             {showIssues && messageIssue && <p id="message-error" className="text-base font-bold text-red-800">{messageIssue}</p>}
           </div>
@@ -289,7 +296,7 @@ export function ClinicTool() {
               isLoading || !canSubmit ? 'bg-[#552c24]/10 text-[#552c24]/40 cursor-not-allowed' : 'bg-[#ffcd4a] text-[#552c24] hover:bg-[#ffcd4a]/90 active:scale-[0.98] shadow-[#ffcd4a]/20'
             }`}
           >
-            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />문안 생성 및 검수 중...</>) : (<><Send size={20} />{publicReply ? "공개 리뷰 답글 만들기" : isFollowup ? "안내 문자 만들기" : "분석 시작하기"}</>)}
+            {isLoading ? (<><RefreshCw className="animate-spin" size={20} />문안 생성 및 검수 중...</>) : (<><Send size={20} />{publicReply ? "공개 리뷰 답글 만들기" : isFollowup ? "안내 문자 만들기" : checkInAvailable && !input.trim() ? "경과 확인 문자 만들기" : "분석 시작하기"}</>)}
           </button>
         </form>
       </section>

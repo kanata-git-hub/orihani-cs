@@ -1,10 +1,19 @@
 import type { AnalyzeParams } from './types';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError } from './patientSymptoms.ts';
+import { getEnteredPrescriptionNames } from './prescriptionFields.ts';
+import { isPublicReview } from './publicReview.ts';
 
+export const HERBAL_PROGRESS_SITUATION = '한약 복용/경과';
 export const HERBAL_FOLLOWUP_SITUATION = '일반한약 첫 15일 마무리 안내';
 
 export function isHerbalFollowup(params: Pick<AnalyzeParams, 'selectedSituations'>) {
   return params.selectedSituations.includes(HERBAL_FOLLOWUP_SITUATION);
+}
+
+export function canStartHerbalCheckIn(params: AnalyzeParams, resolvedSymptoms: string): boolean {
+  return params.selectedSituations.includes(HERBAL_PROGRESS_SITUATION) &&
+    !isHerbalFollowup(params) && !isPublicReview(params.selectedSituations) &&
+    Boolean(params.patientName?.trim() && resolvedSymptoms.trim() && getEnteredPrescriptionNames(params.prescriptionName).length);
 }
 
 export function herbalFollowupTreatmentError(params: AnalyzeParams): string | null {

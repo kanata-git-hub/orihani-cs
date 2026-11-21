@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { buildClinicReference, buildSystemInstruction } from './src/constants/index.ts';
-import { buildHerbalFollowup, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
+import { buildHerbalFollowup, canStartHerbalCheckIn, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
 import { herbalDirectionsFor, withHerbalDirections } from './src/herbalDirections.ts';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
 import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
@@ -94,8 +94,9 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         const treatments = context.selectedTreatments.filter(t => !SYMPTOM_TREATMENT_OPTIONS.includes(t));
         const clinicalText = [symptoms, context.input].filter(Boolean).join('\n');
         const directions = herbalDirectionsFor(context.selectedTreatments);
+        const herbalCheckIn = !context.input.trim() && canStartHerbalCheckIn(context, symptoms);
         const writingRules = patientContext
-          ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText) : systemInstruction;
+          ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText, herbalCheckIn) : systemInstruction;
         let writingPrompt = publicReply ? publicReviewPrompt(context.input, context.direction) : prompt;
         if (!publicReply && context.prescriptionName.trim()) {
           writingPrompt += '\n\n직원이 이번 환자에게 사용한 처방명(내부 참고용, 이름 출력 금지, 작용 설명에 반영)\n' +
@@ -103,7 +104,7 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         }
         const draft = parseAnalysisResult(await generate(writingRules, writingPrompt) || '');
         draft.responseDraft = withHerbalDirections(draft.responseDraft, directions);
-        const clinicReference = buildClinicReference(context.selectedTreatments, context.selectedSituations, clinicalText);
+        const clinicReference = buildClinicReference(context.selectedTreatments, context.selectedSituations, clinicalText, herbalCheckIn);
         const source = { ...context, symptoms, selectedTreatments: treatments, prescriptionReferences, clinicReference };
         const result = await reviewers.reviewFree(source, draft);
         const sections = [result.strategy, result.responseDraft, result.staffTip];

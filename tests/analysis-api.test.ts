@@ -237,6 +237,14 @@ test('authenticated generation returns only reviewed free messages and canonical
     const patient = parseAnalysisResult(final.text).responseDraft;
     assert.ok(patient.includes('가상님, 안녕하세요.\n\n눈 가려움은 어떠신가요?'));
     assert.equal(patient.split(HERBAL_DIRECTIONS).length, 2);
+    const checkInContext = { ...context, patientName: '가상', symptoms: '', prescriptionName: '온청음',
+      selectedTreatments: ['소화불량'], selectedSituations: ['한약 복용/경과'], input: ' ' };
+    assert.equal((await request('경과 확인', { patientContext: checkInContext })).status, 200);
+    assert.equal(seenSymptoms, '소화불량');
+    for (const rules of [seenRules, seenReference]) assert.match(rules, /한의원에서 먼저 보내는 한약 복용 경과 확인 문자/);
+    assert.equal((await request('직접 받은 문의', { patientContext: { ...checkInContext, input: '약을 먹고 속이 편해졌어요.' } })).status, 200);
+    for (const rules of [seenRules, seenReference]) assert.doesNotMatch(rules, /한의원에서 먼저 보내는 한약 복용 경과 확인 문자/);
+
     const legacy = await request('hello');
     assert.equal((await legacy.json()).reviewed, true);
     assert.equal(seenRules, 'clinic');
