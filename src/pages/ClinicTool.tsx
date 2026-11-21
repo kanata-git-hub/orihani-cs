@@ -244,7 +244,7 @@ export function ClinicTool() {
           )}
           <div className="space-y-2">
             <label htmlFor="patient-prescription" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
-              <Stethoscope size={20} /> 사용한 처방명 (선택)
+              <Stethoscope size={20} /> 사용한 처방명
             </label>
             <input id="patient-prescription" type="text" value={prescriptionName}
               onChange={e => setPrescriptionName(e.target.value)}
