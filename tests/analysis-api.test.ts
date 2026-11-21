@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import express from 'express';
 import { analysisEndpoint } from '../analysisApi.ts';
+import { authenticatedApi } from '../serverSecurity.ts';
 import { buildHerbalFollowup, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
 import { MESSAGE_REVIEW_VERSION, parseAnalysisResult } from '../src/patientMessageText.ts';
 import { DIET_HERBAL_DIRECTIONS, HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
@@ -31,7 +32,10 @@ test('a dedicated prescription reaches ordinary and fixed writing and review, bu
     providerCalls++;
     seenPrompt = prompt;
     return prompt.startsWith('{') ? effect : '###1###\n가이드\n###2###\n' + effect + '\n###3###\n팁';
-  }, (_req, _res, next) => next(), {
+  }, authenticatedApi(async token => {
+    const email = token === 'owner-one' ? 'orihani001@gmail.com' : token === 'owner-two' ? 'kanata840@gmail.com' : 'staff@example.test';
+    return { uid: String(token), email };
+  }), {
     async reviewFree(source) {
       seenName = source.prescriptionName ?? '';
       seenReferences = source.prescriptionReferences ?? [];
@@ -47,11 +51,25 @@ test('a dedicated prescription reaches ordinary and fixed writing and review, bu
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
   const url = 'http://127.0.0.1:' + (server.address() as {port:number}).port + '/generate';
-  const submit = (patientContext: object, prescriptionNames: string[] = []) => fetch(url, {
-    method:'POST', headers:{'Content-Type':'application/json'},
+  const submit = (patientContext: object, prescriptionNames: string[] = [], token = 'owner-one') => fetch(url, {
+    method:'POST', headers:{'Content-Type':'application/json', Authorization: 'Bearer ' + token},
     body:JSON.stringify({systemInstruction:'clinic', prompt:'현재 약을 안내해 주세요.', patientContext, prescriptionNames}),
   });
   try {
+    const noPrescription = { ...context, prescriptionName: '' };
+    for (const restricted of [context, { ...noPrescription, selectedSituations: ['원장'] }]) {
+      const response = await submit({ ...restricted, isDirectorAccount: true, email: 'kanata840@gmail.com' }, [], 'staff');
+      assert.equal(response.status, 403);
+    }
+    assert.equal(providerCalls, 0);
+    assert.equal((await submit({ ...noPrescription, input: '', selectedSituations: ['한약 복용/경과'] }, [], 'staff')).status, 200);
+    assert.equal(seenName, '');
+    assert.match(seenPrompt, /질환·증상: 부종/);
+    assert.equal((await submit(noPrescription, [], 'staff')).status, 200);
+    assert.doesNotMatch(seenPrompt, /현재 약을 안내해 주세요/);
+    assert.equal((await submit({ ...context, selectedSituations: ['원장'] }, [], 'owner-two')).status, 200);
+    assert.equal(seenName, '오령산');
+
     const ordinary = await submit(context);
     assert.equal(ordinary.status, 200);
     assert.match(seenPrompt, /prescriptionName.*오령산/);
@@ -124,7 +142,11 @@ test('authenticated generation returns only reviewed free messages and canonical
     if (prompt === sensitive) throw Object.assign(new Error(sensitive), { status: 429 });
     if (prompt === 'malformed') return '문자와 가이드가 구분되지 않습니다.';
     return encode(prompt);
-  }, (req, res, next) => { if (req.headers.authorization === 'test') next(); else res.sendStatus(401); }, {
+  }, (req, res, next) => {
+    if (req.headers.authorization !== 'test') { res.sendStatus(401); return; }
+    res.locals.isDirectorAccount = true;
+    next();
+  }, {
     async reviewFree(context, draft, directions) {
       freeChecks++;
       if (context.selectedSituations.includes('예약 변경/취소') && draft.responseDraft.includes(HERBAL_DIRECTIONS)) {

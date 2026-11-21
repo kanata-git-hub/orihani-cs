@@ -1,7 +1,7 @@
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { buildClinicReference, buildSystemInstruction } from './src/constants/index.ts';
 import { buildPrivatePatientPrompt } from './src/patientPrompt.ts';
-import { buildHerbalFollowup, canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, fixedEffectLengthInstruction, fixedEffectLengthTarget, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
+import { DIRECTOR_AUTHOR, buildHerbalFollowup, canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, fixedEffectLengthInstruction, fixedEffectLengthTarget, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
 import { herbalDirectionsFor, withHerbalDirections } from './src/herbalDirections.ts';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
 import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
@@ -56,6 +56,11 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
       patientName: patientContext.patientName, symptoms: patientContext.symptoms, input: patientContext.input,
       direction: patientContext.direction, selectedTreatments: patientContext.selectedTreatments, selectedSituations: patientContext.selectedSituations,
     } : { patientName: '', symptoms: '', prescriptionName: '', input: prompt, direction: '', selectedTreatments: [], selectedSituations: [] };
+    const isDirectorAccount = res.locals.isDirectorAccount === true;
+    if (!isDirectorAccount && (submitted.prescriptionName.trim() || submitted.selectedSituations.includes(DIRECTOR_AUTHOR))) {
+      res.status(403).json({ code: 'PATIENT_INPUT', error: '처방명 입력과 원장 명의 작성은 원장 계정에서만 사용할 수 있습니다. 화면을 새로고침해 주세요.' });
+      return;
+    }
     try {
       const publicReply = isPublicReview(submitted.selectedSituations);
       if (publicReply && (isHerbalFollowup(submitted) || !submitted.input.trim())) {
@@ -69,7 +74,7 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
       const context = staffProgress ? staffHerbalProgressContext(form, inspected.symptoms) : form;
       let symptoms = resolvePatientSymptoms(context, inspected);
       const fixed = isHerbalFollowup(context);
-      const problem = fixed ? herbalFollowupError(context) : symptomInputError(inspected, symptoms, !staffProgress);
+      const problem = fixed ? herbalFollowupError(context, isDirectorAccount) : symptomInputError(inspected, symptoms, isDirectorAccount && !staffProgress);
       if (problem) {
         res.status(422).json({ code: 'PATIENT_INPUT', error: problem });
         return;
@@ -101,10 +106,12 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         const clinicalText = [symptoms, context.input].filter(Boolean).join('\n');
         const directions = herbalDirectionsFor(context.selectedTreatments);
         const herbalCheckIn = !context.input.trim() && canStartHerbalCheckIn(context, symptoms);
-        const writingRules = patientContext
+        const writingRules = patientContext || !isDirectorAccount
           ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText, herbalCheckIn) : systemInstruction;
         let writingPrompt = publicReply ? publicReviewPrompt(context.input, context.direction) : prompt;
-        if (staffProgress) writingPrompt = buildPrivatePatientPrompt(context, symptoms);
+        if (staffProgress || (!isDirectorAccount && !publicReply)) {
+          writingPrompt = buildPrivatePatientPrompt(context, symptoms, staffProgress ? [] : inspected.prescriptions);
+        }
         if (!publicReply && context.prescriptionName.trim()) {
           writingPrompt += '\n\n직원이 이번 환자에게 사용한 처방명(내부 참고용, 이름 출력 금지, 작용 설명에 반영)\n' +
             JSON.stringify({ prescriptionName: context.prescriptionName });

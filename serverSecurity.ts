@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import { isDirectorEmail } from './src/directorAccount.ts';
 
 // Public Firebase app configuration. Server credentials never enter the browser.
 const WEB_KEY = 'AIzaSyCtEbU2W0VZdxN45JVOdYtaxwe5tSg2bjY';
@@ -93,6 +94,7 @@ export function authenticatedApi(verify = verifyAppUser): RequestHandler {
     const release = () => { if (!released) { released = true; bucket!.active--; } };
     res.once('finish', release); res.once('close', release);
     res.locals.uid = user.uid;
+    res.locals.isDirectorAccount = isDirectorEmail(user.email);
     next();
   };
 }
