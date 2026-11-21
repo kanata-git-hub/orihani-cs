@@ -191,6 +191,7 @@ test('authenticated generation returns only reviewed free messages and canonical
     assert.equal(namedFixed.status, 200);
     const namedResult = await namedFixed.json();
     assert.equal(namedResult.effectParagraph, fixedEffect);
+    assert.ok(!parseAnalysisResult(namedResult.text).responseDraft.includes(HERBAL_DIRECTIONS));
     assert.equal(namedResult.text.replace('\n\n' + fixedEffect, ''), buildHerbalFollowup(withFormula));
     assert.doesNotMatch(namedResult.text, /오령산/);
     assert.deepEqual([calls,freeChecks,fixedChecks],[1,0,4]);

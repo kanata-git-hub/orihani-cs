@@ -22,7 +22,7 @@ function loadModule(path, imports = {}) {
 const rx = loadModule('src/prescriptionFields.ts');
 const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
 const directions = loadModule('src/herbalDirections.ts');
-const followup = loadModule('src/herbalFollowup.ts', { './patientSymptoms.ts': symptoms, './herbalDirections.ts': directions });
+const followup = loadModule('src/herbalFollowup.ts', { './patientSymptoms.ts': symptoms });
 const reviews = loadModule('src/publicReview.ts');
 const constants = loadModule('src/constants/index.ts', {
   '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms, '../herbalDirections.ts': directions, '../publicReview.ts': reviews
@@ -122,9 +122,8 @@ test('first 15-day situation always selects the original fixed text, even in a r
   const extra = { ...ordinary, input: '다른 상황 메모', direction: '자세히', selectedTraits: ['고령/기력저하'],
     selectedTreatments: ['한약', '도침'], selectedSituations: ['원장', followup.HERBAL_FOLLOWUP_SITUATION, '한약 복용/경과'] };
   assert.equal(await service.generate(ordinary), expected);
-  const withDirections = await service.generate(extra);
-  assert.equal(withDirections, followup.buildHerbalFollowup(extra));
-  assert.ok(withDirections.includes(directions.HERBAL_DIRECTIONS));
+  assert.equal(await service.generate(extra), expected);
+  assert.ok(!service.request().systemInstruction.includes(directions.HERBAL_DIRECTIONS));
   assert.equal(service.calls(), 2);
   assert.equal(service.request().mode, 'fixed');
   assert.equal(service.request().patientContext.symptoms, '피부 붉어짐, 만성 소화불량');
