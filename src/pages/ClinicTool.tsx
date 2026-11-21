@@ -10,6 +10,7 @@ import { analyzePatientMessage, PRESCRIPTION_OUTPUT_ERROR, REVIEW_UNAVAILABLE, P
 import { TagSelector } from '../components/TagSelector';
 import { ResultCard } from '../components/ResultCard';
 import { useAuth } from '../contexts/AuthContext';
+import { isDirectorEmail } from '../directorAccount';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -18,7 +19,7 @@ import { isPublicReview, publicReviewContext, REVIEW_FOLLOWUP_CONFLICT } from '.
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
 
-const DIRECTOR_EMAILS = new Set(['orihani001@gmail.com', 'kanata840@gmail.com']);
+const staffSituationGroups = SITUATION_GROUPS.filter(group => !group.options.includes(DIRECTOR_AUTHOR));
 
 const fieldColors = (invalid: boolean) => invalid
   ? 'border-2 border-red-600 bg-red-50 focus:border-red-700 focus:ring-red-300'
@@ -39,19 +40,20 @@ export function ClinicTool() {
   const { user } = useAuth();
   const [patientName, setPatientName] = useLocalStorage<string>('app_patient_name', '');
   const [symptoms, setSymptoms] = useLocalStorage<string>('app_symptoms', '');
-  const [prescriptionName, setPrescriptionName] = useLocalStorage<string>('app_prescription_name', '');
+  const [storedPrescription, setPrescriptionName] = useLocalStorage<string>('app_prescription_name', '');
   const [input, setInput] = useLocalStorage<string>('app_input', "");
   const [direction, setDirection] = useLocalStorage<string>('app_direction', "");
   const [selectedTreatments, setSelectedTreatments] = useLocalStorage<string[]>('app_treatments', []);
   const [storedSituations, setStoredSituations] = useLocalStorage<string[]>('app_situations', []);
+  const isDirectorAccount = user?.emailVerified === true && isDirectorEmail(user.email);
+  const prescriptionName = isDirectorAccount ? storedPrescription : '';
   const hasFormInput = Boolean(patientName || symptoms || prescriptionName || input || direction || selectedTreatments.length);
-  const directorByDefault = DIRECTOR_EMAILS.has(user?.email?.trim().toLowerCase() ?? '');
   // Older drafts stored the author alongside the other situation tags.
   const hasStoredDraft = hasFormInput || storedSituations.length > 0;
   const [directorOverride, setDirectorOverride] = useLocalStorage<boolean | null>(
     'app_director_author', hasStoredDraft ? storedSituations.includes(DIRECTOR_AUTHOR) : null
   );
-  const directorSelected = directorOverride ?? directorByDefault;
+  const directorSelected = isDirectorAccount && (directorOverride ?? true);
   const situationTags = storedSituations.filter(tag => tag !== DIRECTOR_AUTHOR);
   const selectedSituations = directorSelected ? [...situationTags, DIRECTOR_AUTHOR] : situationTags;
   const [isLoading, setIsLoading] = useState(false);
@@ -69,7 +71,8 @@ export function ClinicTool() {
   const params = staffProgress ? staffHerbalProgressContext(form, symptomField.symptoms) : form;
   const effectiveSymptoms = resolvePatientSymptoms(params, symptomField);
   const publicReply = isPublicReview(selectedSituations);
-  const symptomError = publicReply ? null : symptomInputError(symptomField, effectiveSymptoms, !staffProgress);
+  const showPrescription = isDirectorAccount && !staffProgress && !publicReply;
+  const symptomError = publicReply ? null : symptomInputError(symptomField, effectiveSymptoms, showPrescription);
   const symptomChoices = selectedSymptomOptions(selectedTreatments);
   const showResolvedSymptoms = !symptomError && Boolean(effectiveSymptoms) &&
     (symptomChoices.length > 0 || symptomField.prescriptions.length > 0);
@@ -98,7 +101,7 @@ export function ClinicTool() {
     { id: 'patient-situation', label: publicReply ? '공개 리뷰' : '환자 메시지 또는 상황', problem: messageIssue },
   ].filter(field => field.problem);
   const canSubmit = issues.length === 0;
-  const formEmpty = !hasFormInput && situationTags.length === 0 && directorSelected === directorByDefault;
+  const formEmpty = !hasFormInput && situationTags.length === 0 && directorSelected === isDirectorAccount;
   const cached = user && formEmpty && savedResult?.reviewVersion === MESSAGE_REVIEW_VERSION && savedResult.owner === user.uid ? savedResult : null;
   const patientText = typeof cached?.responseDraft === 'string' ? normalizePatientMessage(cached.responseDraft) : '';
   const result = patientText.trim() ? cached : null;
@@ -116,9 +119,10 @@ export function ClinicTool() {
     setSelectedTreatments(prev => prev.includes(t) ? prev.filter(i => i !== t) : [...prev, t]);
   };
   const toggleSituation = (s: string) => {
+    if (s === DIRECTOR_AUTHOR && !isDirectorAccount) return;
     invalidateResult();
     if (s === DIRECTOR_AUTHOR) {
-      setDirectorOverride(current => !(current ?? directorByDefault));
+      setDirectorOverride(current => !(current ?? true));
       return;
     }
     setStoredSituations(previous => {
@@ -245,7 +249,7 @@ export function ClinicTool() {
               반영할 질환·증상: {effectiveSymptoms}
             </p>
           )}
-          {!staffProgress && <div className="space-y-2">
+          {showPrescription && <div className="space-y-2">
             <label htmlFor="patient-prescription" className="text-lg sm:text-xl font-bold text-[#552c24] flex items-center gap-2">
               <Stethoscope size={20} /> 사용한 처방명(원장만 작성)
             </label>
@@ -262,7 +266,7 @@ export function ClinicTool() {
 
           <div className="space-y-4">
             {!publicReply && <TagSelector id="treatment-options" error={showIssues ? treatmentIssue : null} icon={Stethoscope} title="치료 종류" groups={TREATMENT_GROUPS} tone="teal" selectedOptions={selectedTreatments} onToggle={toggleTreatment} />}
-            <TagSelector id="situation-options" error={showIssues && conflictingModes ? REVIEW_FOLLOWUP_CONFLICT : null} icon={MessageSquare} title="응대 상황" groups={SITUATION_GROUPS} tone="amber" optionLabels={{ [DIRECTOR_AUTHOR]: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
+            <TagSelector id="situation-options" error={showIssues && conflictingModes ? REVIEW_FOLLOWUP_CONFLICT : null} icon={MessageSquare} title="응대 상황" groups={isDirectorAccount ? SITUATION_GROUPS : staffSituationGroups} tone="amber" optionLabels={{ [DIRECTOR_AUTHOR]: "원장 명의로 작성" }} selectedOptions={selectedSituations} onToggle={toggleSituation} />
           </div>
 
           <div className="space-y-2">

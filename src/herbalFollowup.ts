@@ -37,13 +37,13 @@ export function herbalFollowupTreatmentError(params: AnalyzeParams): string | nu
     : null;
 }
 
-export function herbalFollowupError(params: AnalyzeParams): string | null {
+export function herbalFollowupError(params: AnalyzeParams, prescriptionFieldVisible = true): string | null {
   if (!isHerbalFollowup(params)) return null;
   const treatmentError = herbalFollowupTreatmentError(params);
   if (treatmentError) return treatmentError;
   const field = inspectPatientSymptomInput(params);
   const symptoms = resolvePatientSymptoms(params, field);
-  const inputError = symptomInputError(field, symptoms);
+  const inputError = symptomInputError(field, symptoms, prescriptionFieldVisible);
   if (inputError) return inputError;
   if (!params.patientName?.trim() || !symptoms) {
     return '환자 이름과 질환·증상을 입력해 주세요.';
