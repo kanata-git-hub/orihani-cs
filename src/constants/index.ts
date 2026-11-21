@@ -119,7 +119,7 @@ export function buildClinicReference(treatments: string[], situations: string[],
   if (treatments.includes('초음파약침') || (discussesProcedure && shoulderInquiry)) instructions.push(ULTRASOUND_GUIDANCE);
   if (discussesProcedure && situations.includes('신환 상담/문의')) instructions.push(PROCEDURE_GUIDANCE);
 
-  const directions = herbalDirectionsFor(treatments);
+  const directions = situations.includes(HERBAL_FOLLOWUP_SITUATION) ? '' : herbalDirectionsFor(treatments);
   if (directions) {
     instructions.push('선택된 치료의 원장 승인 복약 안내는 다음과 같다. 환자 문자에는 이 문구를 그대로 한 번만 넣고, 다른 횟수·시간대·식사 조건·보관법을 덧붙이거나 같은 안내를 되풀이하지 않는다.\n' + directions);
   }

@@ -31,13 +31,11 @@ test('explicit medicine slots protect named local preparations without classifyi
   assert.deepEqual(getEffectPrescriptionNames('일반한약(하루 두 번), 약(냉장 보관), 불편(원내새봄탕), 예약(가상환제Q3)', ''), []);
 });
 
-test('first contact with the herbal chip includes the clinic directions in the patient template', () => {
+test('the first 15-day follow-up keeps the approved copy without repeating dosing or storage instructions', () => {
   const message = buildHerbalFollowup(params).split(/###\d###/)[2].trim();
   assert.equal(message, `김○○님, 안녕하세요. 오리한의원입니다.
 
 지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?
-
-한약은 하루 두 번 식후에 복용하시고, 냉장 보관해 주세요.
 
 만성 소화불량 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 정도 치료를 이어가며 증상이 좋아지고 안정적으로 유지되는지 살펴보는 것이 좋습니다.
 
@@ -46,14 +44,12 @@ test('first contact with the herbal chip includes the clinic directions in the p
 김○○님의 편안한 일상을 위해 오리한의원이 꾸준히 함께하겠습니다. 감사합니다.`);
 });
 
-test('only an eligible treatment selection adds one directions paragraph to fixed patient copy', () => {
-  for (const selectedTreatments of [['피로'], ['소화불량'], ['한약', '피로', '소화불량']]) {
-    const [, strategy, patient, staffTip] = buildHerbalFollowup({ ...params, selectedTreatments }).split(/###\d###/);
-    assert.equal(patient.split(HERBAL_DIRECTIONS).length - 1, 1);
-    assert.ok(!strategy.includes(HERBAL_DIRECTIONS) && !staffTip.includes(HERBAL_DIRECTIONS));
-  }
-  for (const selectedTreatments of [[], ['침']]) {
-    const result = buildHerbalFollowup({ ...params, selectedTreatments, symptoms: '피로, 소화불량', input: '한약' });
+test('first 15-day follow-up preserves the effect paragraph without adding directions for any eligible selection', () => {
+  const effect = '이번 한약은 소화를 도와 식사 후 더부룩함을 덜어주는 데 도움을 줍니다.';
+  for (const selectedTreatments of [[], ['침'], ['한약'], ['피로'], ['소화불량'], ['한약', '피로', '소화불량']]) {
+    const result = buildHerbalFollowup({ ...params, selectedTreatments }, effect);
+    const patient = result.split(/###\d###/)[2];
+    assert.ok(patient.includes('\n\n' + effect + '\n\n'));
     assert.ok(!result.includes(HERBAL_DIRECTIONS));
   }
 });
