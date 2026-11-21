@@ -1,5 +1,20 @@
 import type { AnalysisResult } from './types';
 
+// Editorial target for private patient messages, including any approved directions.
+export const PATIENT_MESSAGE_LENGTH_TARGET = 400;
+
+export function isDeletionOnlyShortening(original: string, candidate: string): boolean {
+  if (!candidate.trim() || candidate.length >= original.length) return false;
+  const kept = candidate.trim().split(/\s+/u);
+  const keptWords = new Set(kept);
+  let index = 0;
+  for (const word of original.trim().split(/\s+/u)) {
+    if (/\d/u.test(word) && !keptWords.has(word)) return false;
+    if (word === kept[index]) index++;
+  }
+  return index === kept.length;
+}
+
 export const MESSAGE_REVIEW_VERSION = 6;
 export const INVALID_PATIENT_MESSAGE = '환자 문자와 직원 안내를 구분할 수 없습니다. 다시 생성해 주세요.';
 

@@ -114,8 +114,11 @@ test('authenticated generation returns only reviewed free messages and canonical
     if (prompt === 'malformed') return '문자와 가이드가 구분되지 않습니다.';
     return encode(prompt);
   }, (req, res, next) => { if (req.headers.authorization === 'test') next(); else res.sendStatus(401); }, {
-    async reviewFree(context, draft) {
+    async reviewFree(context, draft, directions) {
       freeChecks++;
+      if (context.selectedSituations.includes('예약 변경/취소') && draft.responseDraft.includes(HERBAL_DIRECTIONS)) {
+        assert.equal(directions, HERBAL_DIRECTIONS);
+      }
       seenDraft = draft.responseDraft;
       assert.equal(draft.strategy, '내부 안내');
       assert.equal(draft.staffTip, '내부 팁');

@@ -107,7 +107,7 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         draft.responseDraft = withHerbalDirections(draft.responseDraft, directions);
         const clinicReference = buildClinicReference(context.selectedTreatments, context.selectedSituations, clinicalText, herbalCheckIn);
         const source = { ...context, symptoms, selectedTreatments: treatments, prescriptionReferences, clinicReference };
-        const result = await reviewers.reviewFree(source, draft);
+        const result = await reviewers.reviewFree(source, draft, directions);
         const sections = [result.strategy, result.responseDraft, result.staffTip];
         if (sections.some(part => typeof part !== 'string' || !part.trim() || /###\d+###/.test(part))) {
           throw new Error(INVALID_PATIENT_MESSAGE);
