@@ -200,6 +200,23 @@ test('fixed follow-up can add only a reviewed name-free effect while retaining a
       await assert.rejects(reviewFixedSymptoms(form, '고정 본문'), { status:503 });
     });
   }
+  const longEffect = '몸의 수분 흐름을 조절해 발목의 붓기를 가라앉히도록 돕습니다. '.repeat(5).trim();
+  const longVerdict = { items, effectParagraph:longEffect,
+    formulaEffects:[{ ...formulaEffects[0], action:'수분 흐름을 조절해', patientQuote:longEffect }] };
+  await t.test('an over-target reviewed paragraph gets one shorter, fully reviewed replacement', async st => {
+    const mock = providerSequence(st, [longVerdict, { items, formulaEffects, effectParagraph }]);
+    const result = await reviewFixedSymptoms(form, '고정 본문', longEffect);
+    assert.equal(result.effectParagraph, effectParagraph);
+    assert.equal(mock.mock.callCount(), 2);
+    const request = JSON.parse(String(mock.mock.calls[1].arguments[1]?.body));
+    assert.match(request.systemInstruction.parts[0].text, /공백 포함 120자 이내/);
+    assert.equal(JSON.parse(request.contents[0].parts[0].text).effectDraft, longEffect);
+  });
+  await t.test('a failed shortening pass preserves the complete approved paragraph', async st => {
+    const mock = providerSequence(st, [longVerdict, { items, formulaEffects:[], effectParagraph:'짧은 문구' }]);
+    assert.equal((await reviewFixedSymptoms(form, '고정 본문')).effectParagraph, longEffect);
+    assert.equal(mock.mock.callCount(), 2);
+  });
   await t.test('private unidentified formula cannot introduce an unsupported effect', async st => {
     const unknown = { ...form, input:'처방명: 원내Q27' };
     const formulaEffects = [{ index:0, kind:'unidentified', patientQuote:'', action:'', sourceQuote:'처방명: 원내Q27' }];

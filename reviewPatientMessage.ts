@@ -1,6 +1,6 @@
 import { fixedSymptomTerms } from './src/patientSymptoms.ts';
 import { effectReviewFor, IncompleteEffectReview } from './prescriptionEffectReview.ts';
-import { isFixedEffectParagraph } from './src/herbalFollowup.ts';
+import { fixedEffectLengthInstruction, fixedEffectLengthTarget, isFixedEffectParagraph } from './src/herbalFollowup.ts';
 import type { AnalysisResult } from './src/types/index.ts';
 import { normalizePatientMessage } from './src/patientMessageText.ts';
 import { isPublicReview, PUBLIC_REVIEW_GREETING, PUBLIC_REVIEW_STYLE } from './src/publicReview.ts';
@@ -147,11 +147,14 @@ export async function reviewFixedSymptoms(input: ReviewInput, draft: string, eff
   const spec = effectReviewFor(input.input, input.direction, input.prescriptionName);
   const withEffects = spec.names.length > 0;
   const slotInstruction = 'effectDraft는 별도의 작성자가 쓴 효과 문단 초안이다. 원자료와 독립적으로 대조하고, 증상 나열·효과 누락·과장이 있으면 바로잡은 최종 문단만 effectParagraph에 넣는다. 이번 환자의 처방이 어떤 작용으로 어떤 불편에 도움이 되는지 약 이름 없이 간결하게 전한다. 처방의 대상이 아니거나 설명할 수 있는 효과가 없으면 빈 문자열이다. 고정문구·복용법·인사·내원 안내·직원 지침을 되풀이하지 않는다. patientQuote에는 이 문단에서 해당 효과를 설명한 문장 전체를 그대로 인용한다. 이 문단의 모든 문장은 적어도 하나의 patientQuote에 포함되어야 한다.';
+  const lengthTarget = fixedEffectLengthTarget(draft, spec.names.length);
+  const instruction = withEffects
+    ? [fixed, spec.instruction, slotInstruction, fixedEffectLengthInstruction(lengthTarget)].join('\n') : fixed;
   let currentEffectDraft = effectDraft;
   let effectRepair: EffectRepair | undefined;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const instruction = withEffects ? [fixed, spec.instruction, slotInstruction].join('\n') : fixed;
-    const verdict = await requestVerdict(instruction + (effectRepair ? '\n' + effectRepairInstruction : ''),
+
+  async function reviewCandidate(reviewInstruction: string) {
+    const verdict = await requestVerdict(reviewInstruction,
       { context: input, terms, draft, effectDraft: currentEffectDraft, effectPrescriptionNames: spec.names, effectRepair }, {
       type: 'OBJECT', properties: { ...spec.properties, ...(withEffects && { effectParagraph: { type: 'STRING' } }), items: { type: 'ARRAY', items: {
         type: 'OBJECT', properties: {
@@ -175,19 +178,35 @@ export async function reviewFixedSymptoms(input: ReviewInput, draft: string, eff
     }
     const effectParagraph = withEffects ? verdict.effectParagraph : '';
     if (!isFixedEffectParagraph(effectParagraph) || findDisclosedPrescription(effectParagraph, names)) throw unavailable();
-    let effects: string[];
-    try {
-      effects = spec.validate(verdict, effectParagraph, input.symptoms);
-    } catch (error) {
-      if (!(error instanceof IncompleteEffectReview)) throw error;
-      effectRepair = effectFailure(error, 'fixed', attempt);
-      if (attempt === 2) throw error;
-      currentEffectDraft = effectParagraph;
-      continue;
-    }
+    currentEffectDraft = effectParagraph;
+    const effects = spec.validate(verdict, effectParagraph, input.symptoms);
     const unreviewed = effects.reduce((remaining, quote) => remaining.replaceAll(quote, ''), effectParagraph);
     if (Boolean(effects.length) !== Boolean(effectParagraph) || /[^\s.!?,。]/u.test(unreviewed)) throw unavailable();
     return { terms: selected, effectParagraph };
+  }
+
+  let approved: { terms: string[]; effectParagraph: string } | undefined;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const extra = approved ? '직전 검수 문단이 길다. 각 처방의 작용을 보존하며 더 짧게 다시 쓰고, 줄인 문장으로 인용도 다시 검수한다.'
+        : effectRepair ? effectRepairInstruction : '';
+      const candidate = await reviewCandidate(extra ? instruction + '\n' + extra : instruction);
+      if (approved) {
+        const approvedTerms = approved.terms;
+        const sameTerms = candidate.terms.length === approvedTerms.length &&
+          candidate.terms.every((term, index) => term === approvedTerms[index]);
+        return sameTerms && candidate.effectParagraph && candidate.effectParagraph.length < approved.effectParagraph.length
+          ? candidate : approved;
+      }
+      if (candidate.effectParagraph.length <= lengthTarget || attempt === 2) return candidate;
+      approved = candidate;
+    } catch (error) {
+      // An optional shortening attempt must never replace a verified message with a failed review.
+      if (approved) return approved;
+      if (!(error instanceof IncompleteEffectReview)) throw error;
+      effectRepair = effectFailure(error, 'fixed', attempt);
+      if (attempt === 2) throw error;
+    }
   }
   throw unavailable();
 }

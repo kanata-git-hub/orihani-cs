@@ -35,13 +35,9 @@ test('the first 15-day follow-up keeps the approved copy without repeating dosin
   const message = buildHerbalFollowup(params).split(/###\d###/)[2].trim();
   assert.equal(message, `김○○님, 안녕하세요. 오리한의원입니다.
 
-지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 15일간 복용하시면서 불편하셨던 증상은 전과 비교해 어떠신가요?
+한약은 잘 드시고 계신가요? 만성 소화불량 증상은 복용 전과 비교해 어떠신가요?
 
-만성 소화불량 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 정도 치료를 이어가며 증상이 좋아지고 안정적으로 유지되는지 살펴보는 것이 좋습니다.
-
-현재 드시던 한약이 마무리되는 시기가 다가오고 있습니다. 내원해 주시면 그동안의 변화와 남아 있는 증상을 확인하고, 앞으로의 한약 치료에 대해서도 안내해 드리겠습니다.
-
-김○○님의 편안한 일상을 위해 오리한의원이 꾸준히 함께하겠습니다. 감사합니다.`);
+보통 2~3개월간 경과를 보며 치료합니다. 첫 15일분을 다 드실 무렵 내원해 주시면 남은 불편을 살피고 다음 치료를 상의하겠습니다.`);
 });
 
 test('first 15-day follow-up preserves the effect paragraph without adding directions for any eligible selection', () => {
@@ -54,10 +50,20 @@ test('first 15-day follow-up preserves the effect paragraph without adding direc
   }
 });
 
+test('a three-symptom follow-up fits the 300-character target with a full effect paragraph', () => {
+  const symptoms = '식사 후 더부룩함(저녁에 심함), 발목 붓기, 피로';
+  const effect = '이번 한약은 소화를 도와 식사 뒤 배가 더부룩한 느낌을 덜어주는 데 도움을 줍니다. 또 몸에 남은 수분이 잘 빠져나가도록 도와 발목이 붓는 불편을 줄이는 데 도움을 줍니다.';
+  const patient = buildHerbalFollowup({ ...params, symptoms }, effect).split(/###\d###/)[2].trim();
+  assert.ok(patient.length <= 300);
+  assert.ok(patient.includes(effect));
+  assert.equal(patient.split(symptoms).length, 2);
+  assert.match(patient, /첫 15일분을 다 드실 무렵 내원/);
+});
+
 test('name and symptoms are enough without a patient response or situation', () => {
   assert.equal(herbalFollowupError(params), null);
   assert.match(buildHerbalFollowup({ ...params, patientName: ' 이○○님 ', symptoms: '만성피로' }), /이○○님, 안녕하세요/);
-  assert.match(buildHerbalFollowup({ ...params, symptoms: '만성피로' }), /만성피로 완화에는/);
+  assert.match(buildHerbalFollowup({ ...params, symptoms: '만성피로' }), /만성피로 증상은/);
   assert.doesNotMatch(buildHerbalFollowup({ ...params, patientName: '이○○님' }), /님님/);
 });
 
@@ -102,7 +108,7 @@ test('each symptom button is identical to typing that symptom for the first cont
 test('both symptom buttons and manual additional symptoms are included once', () => {
   const selected = { ...params, symptoms: '피로, 두통', selectedTreatments: ['소화불량', '피로'] };
   assert.equal(resolvePatientSymptoms(selected), '피로, 두통, 소화불량');
-  assert.match(buildHerbalFollowup(selected), /피로, 두통, 소화불량 완화에는/);
+  assert.match(buildHerbalFollowup(selected), /피로, 두통, 소화불량 증상은/);
   assert.equal(resolvePatientSymptoms({ ...params, symptoms: '', selectedTreatments: ['소화불량', '피로'] }), '소화불량, 피로');
 });
 
@@ -132,7 +138,7 @@ test('fixed 15-day output uses the symptom and strips 온청음 with any extra o
   const expected = buildHerbalFollowup({ ...example, symptoms: '눈 주위 가려움' });
   assert.equal(buildHerbalFollowup(example), expected);
   assert.doesNotMatch(expected, /온청음|나아지셨을 것|눈 주위 가려움은 증상이/);
-  assert.match(expected, /눈 주위 가려움 완화에는/);
+  assert.match(expected, /눈 주위 가려움 증상은/);
   assert.throws(() => buildHerbalFollowup({ ...example, symptoms: '온청음', selectedTreatments: ['한약'] }), /증상/);
   const custom = { ...example, symptoms: '눈 주위 가려움, 원내A방', input: '처방명: 원내A방' };
   assert.equal(buildHerbalFollowup(custom), expected);

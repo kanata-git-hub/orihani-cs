@@ -104,6 +104,7 @@ test('authenticated generation returns only reviewed free messages and canonical
     seenRules = instruction;
     seenPrompt = prompt;
     if (instruction.includes('효과 설명 한 문단만')) {
+      assert.match(instruction, /공백 포함 \d+자 이내/);
       const basis = JSON.parse(prompt);
       assert.deepEqual(basis.formulaNames, ['오령산']);
       assert.equal(basis.patientName, undefined);

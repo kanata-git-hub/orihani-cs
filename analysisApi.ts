@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { buildClinicReference, buildSystemInstruction } from './src/constants/index.ts';
-import { buildHerbalFollowup, canStartHerbalCheckIn, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
+import { buildHerbalFollowup, canStartHerbalCheckIn, fixedEffectLengthInstruction, fixedEffectLengthTarget, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
 import { herbalDirectionsFor, withHerbalDirections } from './src/herbalDirections.ts';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
 import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
@@ -81,7 +81,8 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         let effectDraft = '';
         if (formulaNames.length) {
           const basis = { symptoms, input: context.input, direction: context.direction, prescriptionName: context.prescriptionName, formulaNames };
-          effectDraft = (await generate(fixedEffectWriting, JSON.stringify(basis)))?.trim() || '';
+          const lengthGuide = fixedEffectLengthInstruction(fixedEffectLengthTarget(draft, formulaNames.length));
+          effectDraft = (await generate(fixedEffectWriting + '\n' + lengthGuide, JSON.stringify(basis)))?.trim() || '';
           if (!effectDraft) throw new Error(INVALID_PATIENT_MESSAGE);
         }
         const reviewed = await reviewers.reviewFixedSymptoms({ ...context, symptoms, prescriptionReferences }, draft, effectDraft);
