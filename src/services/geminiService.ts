@@ -2,8 +2,9 @@ import { authFetch } from '../authFetch';
 import { buildSystemInstruction } from '../constants';
 import type { AnalyzeParams } from '../types';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage } from '../patientMessageText';
-import { canStartHerbalCheckIn, isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
-import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms';
+import { canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
+import { buildPrivatePatientPrompt } from '../patientPrompt';
+import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError } from '../patientSymptoms';
 import { getEnteredPrescriptionNames, getEffectPrescriptionNames, getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
 import { isPublicReview, publicReviewContext, publicReviewPrompt, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 
@@ -16,10 +17,12 @@ export const analyzePatientMessage = async (form: AnalyzeParams) => {
   const publicReply = isPublicReview(form.selectedSituations);
   if (publicReply && isHerbalFollowup(form)) throw new PatientInputError(REVIEW_FOLLOWUP_CONFLICT);
   if (publicReply && !form.input.trim()) throw new PatientInputError('방문자가 남긴 리뷰 원문이나 별점을 입력해 주세요.');
-  const params = publicReply ? publicReviewContext(form.input, form.direction) : form;
-  const field = inspectPatientSymptomInput(params);
+  const submitted = publicReply ? publicReviewContext(form.input, form.direction) : form;
+  const field = inspectPatientSymptomInput(submitted);
+  const staffProgress = isStaffHerbalProgress(submitted.selectedSituations);
+  const params = staffProgress ? staffHerbalProgressContext(submitted, field.symptoms) : submitted;
   const symptoms = resolvePatientSymptoms(params, field);
-  const fieldError = symptomInputError(field, symptoms);
+  const fieldError = symptomInputError(field, symptoms, !staffProgress);
   if (fieldError) throw new PatientInputError(fieldError);
   const fixedError = herbalFollowupError(params);
   if (fixedError) throw new PatientInputError(fixedError);
@@ -28,19 +31,9 @@ export const analyzePatientMessage = async (form: AnalyzeParams) => {
   const { input, direction, selectedTreatments, selectedSituations } = params;
   const herbalCheckIn = !input.trim() && canStartHerbalCheckIn(params, symptoms);
   const prescriptionName = params.prescriptionName || '';
-  const prescriptionNames = [...new Set([...field.prescriptions, ...getEnteredPrescriptionNames(prescriptionName), ...getReferencedPrescriptions(input, direction)])];
-  const treatments = selectedTreatments.filter(t => !SYMPTOM_TREATMENT_OPTIONS.includes(t));
-  const patientFields = [
-    params.patientName?.trim() && `환자 이름: ${params.patientName.trim()}`,
-    symptoms && `질환·증상: ${symptoms}`,
-    field.prescriptions.length > 0 && `참고용 처방명(환자 증상 아님·출력 금지): ${field.prescriptions.join(', ')}`
-  ].filter(Boolean).join("\n");
-
-  const prompt = publicReply ? publicReviewPrompt(input, direction) : `[환자 및 상황 정보]
-${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input.trim() ? input : "정보 없음"}
-선택된 치료: ${treatments.join(", ") || "미지정"}
-응대 상황: ${selectedSituations.join(", ") || "미지정"}
-추가 요청: ${direction || "없음"}`;
+  const symptomPrescriptions = staffProgress ? [] : field.prescriptions;
+  const prescriptionNames = [...new Set([...symptomPrescriptions, ...getEnteredPrescriptionNames(prescriptionName), ...getReferencedPrescriptions(input, direction)])];
+  const prompt = publicReply ? publicReviewPrompt(input, direction) : buildPrivatePatientPrompt(params, symptoms, symptomPrescriptions);
 
   const response = await authFetch('/api/generate-analysis', {
     method: 'POST',
@@ -82,7 +75,8 @@ ${patientFields ? patientFields + "\n" : ""}메시지/상황: ${input.trim() ? i
     const canonical = buildHerbalFollowup({ ...params, symptoms: verifiedSymptoms }, data.effectParagraph);
     if (data.text !== canonical) throw new Error(REVIEW_UNAVAILABLE);
   }
-  if (findDisclosedPrescription(normalizePatientMessage(data.text), prescriptionNames)) {
+  const privateNames = staffProgress ? [...prescriptionNames, ...field.prescriptions, ...getEnteredPrescriptionNames(form.prescriptionName)] : prescriptionNames;
+  if (findDisclosedPrescription(normalizePatientMessage(data.text), privateNames)) {
     throw new Error(PRESCRIPTION_OUTPUT_ERROR);
   }
   return { text: data.text as string, symptoms: verifiedSymptoms };

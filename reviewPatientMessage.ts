@@ -1,6 +1,6 @@
 import { fixedSymptomTerms } from './src/patientSymptoms.ts';
 import { effectReviewFor, IncompleteEffectReview } from './prescriptionEffectReview.ts';
-import { fixedEffectLengthInstruction, fixedEffectLengthTarget, isFixedEffectParagraph } from './src/herbalFollowup.ts';
+import { fixedEffectLengthInstruction, fixedEffectLengthTarget, isFixedEffectParagraph, isStaffHerbalProgress } from './src/herbalFollowup.ts';
 import type { AnalysisResult } from './src/types/index.ts';
 import { isDeletionOnlyShortening, normalizePatientMessage, PATIENT_MESSAGE_LENGTH_TARGET } from './src/patientMessageText.ts';
 import { withHerbalDirections } from './src/herbalDirections.ts';
@@ -108,7 +108,8 @@ export async function reviewFree(input: ReviewInput, draft: AnalysisResult, dire
 async function reviewFreeDraft(input: ReviewInput, draft: AnalysisResult, shortening = false): Promise<AnalysisResult> {
   const fields = ['strategy', 'responseDraft', 'staffTip'] as const;
   const publicReply = isPublicReview(input.selectedSituations);
-  const effects = publicReply ? undefined : effectReviewFor(input.input, input.direction, input.prescriptionName);
+  const staffCheckIn = !input.input.trim() && isStaffHerbalProgress(input.selectedSituations);
+  const effects = publicReply || staffCheckIn ? undefined : effectReviewFor(input.input, input.direction, input.prescriptionName);
   const instruction = publicReply ? publicReplyReview : free + (effects?.instruction ?? '');
   let currentDraft = draft;
   let effectRepair: EffectRepair | undefined;

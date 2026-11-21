@@ -1,5 +1,5 @@
 import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms.ts';
-import { HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION } from '../herbalFollowup.ts';
+import { HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, isStaffHerbalProgress } from '../herbalFollowup.ts';
 import { herbalDirectionsFor } from '../herbalDirections.ts';
 import { isPublicReview, PUBLIC_REVIEW_STYLE } from '../publicReview.ts';
 
@@ -114,6 +114,9 @@ export function buildClinicReference(treatments: string[], situations: string[],
 
   if (herbalCheckIn) {
     instructions.push('한의원에서 먼저 보내는 한약 복용 경과 확인 문자입니다. 환자에게 한약을 잘 드시고 계신지, 복용 중 불편한 점은 없는지, 입력한 질환·증상은 전과 비교해 어떤지 자연스럽게 물어보십시오. 환자가 이미 문의하거나 답변했다고 쓰지 말고, 호전·악화나 복용 기간을 미리 단정하지 마십시오.');
+    if (isStaffHerbalProgress(situations)) {
+      instructions.push('직원 명의의 경과 확인에는 환자 이름과 질환·증상을 사용하십시오. 한약을 잘 드시고 계신지와 증상의 변화를 묻고, 처방의 종류나 작용은 추측하거나 설명하지 마십시오.');
+    }
   }
   if (accident) instructions.push(ACCIDENT_GUIDANCE);
   if (discussesProcedure && situations.includes('치료 후 반응/통증')) {
