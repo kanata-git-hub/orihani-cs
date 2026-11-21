@@ -2,6 +2,7 @@ import type { AnalyzeParams } from './types';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError } from './patientSymptoms.ts';
 import { getEnteredPrescriptionNames } from './prescriptionFields.ts';
 import { isPublicReview } from './publicReview.ts';
+import { PATIENT_MESSAGE_LENGTH_TARGET } from './patientMessageText.ts';
 
 export const HERBAL_PROGRESS_SITUATION = '한약 복용/경과';
 export const HERBAL_FOLLOWUP_SITUATION = '일반한약 첫 15일 마무리 안내';
@@ -36,14 +37,14 @@ export function herbalFollowupError(params: AnalyzeParams): string | null {
   return null;
 }
 
-// Aim for a 300-character patient message while leaving room for each distinct formula.
+// Reserve space for the approved follow-up copy and each distinct formula.
 export function fixedEffectLengthTarget(patientDraft: string, formulaCount: number): number {
-  const remaining = 300 - patientDraft.length - 2; // blank line before the effect paragraph
+  const remaining = PATIENT_MESSAGE_LENGTH_TARGET - patientDraft.length - 2; // blank line before the effect paragraph
   return Math.min(650, Math.max(75, 30 * formulaCount, Math.min(120, remaining)));
 }
 
 export function fixedEffectLengthInstruction(target: number): string {
-  return `효과 설명은 공백 포함 ${target}자 이내를 목표로 짧게 쓴다. 한두 문장에 각 처방의 작용을 남기고, 겹치는 표현과 고정 본문의 증상 나열은 줄인다.`;
+  return `효과 설명은 공백 포함 ${target}자 이내를 참고하되 각 처방의 작용과 환자에게 쓰는 말투를 살린다. 길이를 줄일 때에는 중복되는 구절만 덜어 내고, 원래 어휘나 종결어미를 바꾸지 않는다.`;
 }
 
 export function isFixedEffectParagraph(value: unknown): value is string {
@@ -65,9 +66,11 @@ export function buildHerbalFollowup(params: AnalyzeParams, effectParagraph = '')
 ###2###
 ${name}님, 안녕하세요. 오리한의원입니다.
 
-한약은 잘 드시고 계신가요? ${symptoms} 증상은 복용 전과 비교해 어떠신가요?${effectParagraph ? '\n\n' + effectParagraph : ''}
+지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요? 불편하셨던 증상은 전과 비교해 어떠신가요?${effectParagraph ? '\n\n' + effectParagraph : ''}
 
-보통 2~3개월간 경과를 보며 치료합니다. 첫 15일분을 다 드실 무렵 내원해 주시면 남은 불편을 살피고 다음 치료를 상의하겠습니다.
+${symptoms} 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 정도 치료를 이어가며 증상이 좋아지고 안정적으로 유지되는지 살펴보는 것이 좋습니다.
+
+현재 드시던 한약이 마무리되는 시기가 다가오고 있습니다. 내원해 주시면 그동안의 변화와 남아 있는 증상을 확인하고, 앞으로의 한약 치료에 대해서도 안내해 드리겠습니다.
 
 ###3###
 거절 시: 현재 상태와 남아 있는 불편함을 먼저 듣고, 경과 확인을 위한 내원을 안내해 주세요.

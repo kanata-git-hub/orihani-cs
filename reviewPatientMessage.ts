@@ -2,7 +2,8 @@ import { fixedSymptomTerms } from './src/patientSymptoms.ts';
 import { effectReviewFor, IncompleteEffectReview } from './prescriptionEffectReview.ts';
 import { fixedEffectLengthInstruction, fixedEffectLengthTarget, isFixedEffectParagraph } from './src/herbalFollowup.ts';
 import type { AnalysisResult } from './src/types/index.ts';
-import { normalizePatientMessage } from './src/patientMessageText.ts';
+import { isDeletionOnlyShortening, normalizePatientMessage, PATIENT_MESSAGE_LENGTH_TARGET } from './src/patientMessageText.ts';
+import { withHerbalDirections } from './src/herbalDirections.ts';
 import { isPublicReview, PUBLIC_REVIEW_GREETING, PUBLIC_REVIEW_STYLE } from './src/publicReview.ts';
 import { findDisclosedPrescription, getEnteredPrescriptionNames, getReferencedPrescriptions, inspectSymptomField } from './src/prescriptionFields.ts';
 
@@ -20,7 +21,7 @@ prescriptionReferences는 따로 분리해 둔 내부 참고용 처방명 목록
 const free = shared + `
 1. 환자용 문자(responseDraft), 직원이 읽는 상담 요지와 가이드(strategy), 직원 대처 팁(staffTip)을 한 세트로 검수한다. 원자료에서 환자, 실제 수신자, 확인된 증상과 경과, 치료, 결정된 안내와 응대 목적을 먼저 구분한다. '속마음'은 환자가 표현한 요청이나 확인할 내용만 담고 감정·동기를 지어내지 않는다.
 2. 첫인사부터 연락을 청하는 마지막 문장까지, 한 문장에 들어 있는 여러 주장을 따로 대조한다. 환자가 말하지 않은 소견·경과·기전과 직원 또는 원장이 준비·시행·확정했다는 근거 없는 행동을 삭제한다. 실제 확인된 사실을 약하게 바꾸지 않는다.
-3. 질문, 조건문, 현재 경과를 묻는 말은 질문 그대로 읽는다. 원장님이 승인한 치료 효과 설명과 권유의 의도·강도를 보존한다. 입력에 없는 개별 증상을 새로 끼워 넣거나 학술적 단서·면책·추가 문진을 덧붙이지 않는다.
+3. 질문, 조건문, 현재 경과를 묻는 말은 질문 그대로 읽는다. 원장님이 승인한 치료 효과 설명과 권유의 의도·강도를 보존한다. 입력에 없는 개별 증상을 새로 끼워 넣거나 학술적 단서·면책·추가 문진을 덧붙이지 않는다. 내용이 맞는 문장은 길이를 이유로 어휘나 어미를 바꾸지 않는다.
 4. 보호자와 환자, 실제로 한약을 복용하거나 시술을 받은 사람이 맞는지 살핀다. 같은 자녀가 분명하면 '별하님'과 '김별하님' 모두 허용하고, 성의 유무만으로 고치지 않는다. 다른 사람의 이름 또는 대상을 바로잡되 공손한 호칭을 지킨다.
 5. 세 섹션의 수신자·증상·치료·예약·처방 상태와 다음 행동이 원자료와 일치하는지 서로 대조한다. 환자 문자가 맞더라도 직원에게 잘못된 확정 안내를 하라고 지시하면 직원 문구를 고친다. 환자 문자를 고친 뒤에도 직원 지침에 같은 오류가 남아 있지 않아야 한다. 내부용 처방명은 세 섹션 모두에서 제외하고, 직원 안내 문구를 환자 문자로 옮기지 않는다. '말씀해 주실 수 있으실까요?'처럼 겹친 높임은 '알려주실 수 있을까요?'처럼 자연스럽게 고친다.
 6. 직원이 이번에 쓰는 처방을 명시했다면 환자 문자에서 그 약이 어떻게 돕는지 확인한다. 증상 이름만 나열하고 '개선하려고 준비했다'로 끝났으면 revise로 작용 설명을 보완한다. 명칭을 숨기면서 설명은 유지한다.`;
@@ -85,17 +86,38 @@ async function requestVerdict(instruction: string, data: object, schema: object)
   } catch { throw unavailable(); }
 }
 
-export async function reviewFree(input: ReviewInput, draft: AnalysisResult): Promise<AnalysisResult> {
+const shortenByDeletion = '이미 내용 검수가 끝난 문안이다. 같은 의미를 거듭 말한 낱말·구절·문장만 삭제한다. 인사, 화자, 어휘, 문장 순서, 질문과 종결어미는 원래 표현을 사용한다. 환자별 정보, 부정·조건, 수치, 처방별 작용, 복약 안내, 권유의 이유·시점 및 다음 행동을 보존한다. 삭제하면 뜻이 달라지거나 문장이 어색해지면 원문을 유지한다.';
+
+export async function reviewFree(input: ReviewInput, draft: AnalysisResult, directions = ''): Promise<AnalysisResult> {
+  const approved = await reviewFreeDraft(input, draft);
+  if (isPublicReview(input.selectedSituations)) return approved;
+  const original = withHerbalDirections(approved.responseDraft, directions);
+  if (original.length <= PATIENT_MESSAGE_LENGTH_TARGET) return approved;
+  try {
+    const edited = await reviewFreeDraft(input, { ...approved, responseDraft: original }, true);
+    if (isDeletionOnlyShortening(original, edited.responseDraft) &&
+        (!directions || edited.responseDraft.includes(directions))) {
+      return { ...approved, responseDraft: edited.responseDraft };
+    }
+  } catch {
+    // Length editing is optional. Only the first, fully reviewed response is the fallback.
+  }
+  return approved;
+}
+
+async function reviewFreeDraft(input: ReviewInput, draft: AnalysisResult, shortening = false): Promise<AnalysisResult> {
   const fields = ['strategy', 'responseDraft', 'staffTip'] as const;
   const publicReply = isPublicReview(input.selectedSituations);
   const effects = publicReply ? undefined : effectReviewFor(input.input, input.direction, input.prescriptionName);
   const instruction = publicReply ? publicReplyReview : free + (effects?.instruction ?? '');
   let currentDraft = draft;
   let effectRepair: EffectRepair | undefined;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  const attempts = shortening ? 1 : 2;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     const data = publicReply ? { review: input.input, tone: input.direction, draft }
       : { context: input, draft: currentDraft, effectPrescriptionNames: effects?.names, effectRepair };
-    const verdict = await requestVerdict(instruction + '\n' + verdictFormat + (effectRepair ? '\n' + effectRepairInstruction : ''), data, {
+    const editInstruction = shortening ? '\n' + shortenByDeletion + ' 직원 안내는 그대로 두고 환자 본문만 확인한다.' : '';
+    const verdict = await requestVerdict(instruction + '\n' + verdictFormat + (effectRepair ? '\n' + effectRepairInstruction : '') + editInstruction, data, {
       type: 'OBJECT', properties: {
         status: { type: 'STRING', enum: ['keep', 'revise'] },
         strategy: { type: 'STRING' }, responseDraft: { type: 'STRING' }, staffTip: { type: 'STRING' },
@@ -131,7 +153,7 @@ export async function reviewFree(input: ReviewInput, draft: AnalysisResult): Pro
     } catch (error) {
       if (!(error instanceof IncompleteEffectReview)) throw error;
       effectRepair = effectFailure(error, 'free', attempt);
-      if (attempt === 2) throw error;
+      if (attempt === attempts) throw error;
       currentDraft = result;
       continue;
     }
@@ -146,7 +168,7 @@ export async function reviewFixedSymptoms(input: ReviewInput, draft: string, eff
   if (terms.length > 80) throw new FixedSymptomInputError();
   const spec = effectReviewFor(input.input, input.direction, input.prescriptionName);
   const withEffects = spec.names.length > 0;
-  const slotInstruction = 'effectDraft는 별도의 작성자가 쓴 효과 문단 초안이다. 원자료와 독립적으로 대조하고, 증상 나열·효과 누락·과장이 있으면 바로잡은 최종 문단만 effectParagraph에 넣는다. 이번 환자의 처방이 어떤 작용으로 어떤 불편에 도움이 되는지 약 이름 없이 간결하게 전한다. 처방의 대상이 아니거나 설명할 수 있는 효과가 없으면 빈 문자열이다. 고정문구·복용법·인사·내원 안내·직원 지침을 되풀이하지 않는다. patientQuote에는 이 문단에서 해당 효과를 설명한 문장 전체를 그대로 인용한다. 이 문단의 모든 문장은 적어도 하나의 patientQuote에 포함되어야 한다.';
+  const slotInstruction = 'effectDraft는 별도의 작성자가 쓴 효과 문단 초안이다. 원자료와 독립적으로 대조하고, 증상 나열·효과 누락·과장이 있으면 바로잡은 최종 문단만 effectParagraph에 넣는다. 이번 환자의 처방이 어떤 작용으로 어떤 불편에 도움이 되는지 약 이름 없이 간결하게 전한다. 효과 설명의 내용과 근거가 맞으면 초안의 어휘·말투를 그대로 유지한다. 처방의 대상이 아니거나 설명할 수 있는 효과가 없으면 빈 문자열이다. 고정문구·복용법·인사·내원 안내·직원 지침을 되풀이하지 않는다. patientQuote에는 이 문단에서 해당 효과를 설명한 문장 전체를 그대로 인용한다. 이 문단의 모든 문장은 적어도 하나의 patientQuote에 포함되어야 한다.';
   const lengthTarget = fixedEffectLengthTarget(draft, spec.names.length);
   const instruction = withEffects
     ? [fixed, spec.instruction, slotInstruction, fixedEffectLengthInstruction(lengthTarget)].join('\n') : fixed;
@@ -188,14 +210,14 @@ export async function reviewFixedSymptoms(input: ReviewInput, draft: string, eff
   let approved: { terms: string[]; effectParagraph: string } | undefined;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const extra = approved ? '직전 검수 문단이 길다. 각 처방의 작용을 보존하며 더 짧게 다시 쓰고, 줄인 문장으로 인용도 다시 검수한다.'
+      const extra = approved ? shortenByDeletion + ' 남은 문장으로 처방별 인용도 다시 검수한다.'
         : effectRepair ? effectRepairInstruction : '';
       const candidate = await reviewCandidate(extra ? instruction + '\n' + extra : instruction);
       if (approved) {
         const approvedTerms = approved.terms;
         const sameTerms = candidate.terms.length === approvedTerms.length &&
           candidate.terms.every((term, index) => term === approvedTerms[index]);
-        return sameTerms && candidate.effectParagraph && candidate.effectParagraph.length < approved.effectParagraph.length
+        return sameTerms && isDeletionOnlyShortening(approved.effectParagraph, candidate.effectParagraph)
           ? candidate : approved;
       }
       if (candidate.effectParagraph.length <= lengthTarget || attempt === 2) return candidate;

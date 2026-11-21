@@ -23,13 +23,13 @@ const rx = loadModule('src/prescriptionFields.ts');
 const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
 const directions = loadModule('src/herbalDirections.ts');
 const reviews = loadModule('src/publicReview.ts');
+const format = loadModule('src/patientMessageText.ts');
 const followup = loadModule('src/herbalFollowup.ts', {
-  './patientSymptoms.ts': symptoms, './prescriptionFields.ts': rx, './publicReview.ts': reviews
+  './patientSymptoms.ts': symptoms, './prescriptionFields.ts': rx, './publicReview.ts': reviews, './patientMessageText.ts': format
 });
 const constants = loadModule('src/constants/index.ts', {
   '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms, '../herbalDirections.ts': directions, '../publicReview.ts': reviews
 });
-const format = loadModule('src/patientMessageText.ts');
 
 function loadService(output) {
   let submitted;

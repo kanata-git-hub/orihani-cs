@@ -65,6 +65,39 @@ test('dedicated prescription names require effects in free and fixed review and 
   });
 });
 
+test('long private replies keep their wording and directions when trimming repetitions', async t => {
+  const form = { ...freeInput, input: '복용 상태를 확인합니다.', symptoms: '소화불량', selectedSituations: ['한약 복용/경과'] };
+  const directions = '한약은 하루 두 번 식후에 복용하시고, 냉장 보관해 주세요.';
+  const question = '지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요?';
+  const body = '안녕하세요.\n\n' + (question + ' ').repeat(13).trim();
+  const original = body + '\n\n' + directions;
+  const short = '안녕하세요.\n\n' + question + '\n\n' + directions;
+  assert.ok(body.length <= 400 && original.length > 400);
+  for (const [label, candidate, expected] of [
+    ['repeated question removed', short, short],
+    ['question rewritten', short.replace(question, '복용은 잘하고 계시나요?'), body],
+    ['mandatory directions removed', short.replace('\n\n' + directions, ''), body]
+  ]) {
+    await t.test(label, async st => {
+      const draft = { ...clean, responseDraft: body };
+      const mock = providerSequence(st, [keep, { status: 'revise', ...draft, responseDraft: candidate }]);
+      assert.equal((await reviewFree(form, draft, directions)).responseDraft, expected);
+      assert.equal(mock.mock.callCount(), 2);
+    });
+  }
+});
+
+test('other private situations also trim repeated words without changing the closing', async t => {
+  const phrase = '예약하신 시간에 맞춰 내원해 주시면 됩니다.';
+  const intro = '안녕하세요. 오리한의원입니다.';
+  const closing = '시간을 변경하실 경우 연락해 주시면 안내해 드리겠습니다.';
+  const draft = { ...clean, responseDraft: [intro, (phrase + ' ').repeat(20).trim(), closing].join('\n\n') };
+  const short = [intro, phrase, closing].join('\n\n');
+  const form = { ...freeInput, input: '예약 시간 문의', selectedSituations: ['원장', '예약 유도/확정'] };
+  providerSequence(t, [keep, { status: 'revise', ...draft, responseDraft: short }]);
+  assert.deepEqual(await reviewFree(form, draft), { ...draft, responseDraft: short });
+});
+
 test('public review uses the published words and a separate editorial brief for Argon', async t => {
   const context = { ...freeInput, input: '한약을 받으러 갔는데 기다리는 동안 아무 안내가 없어서 아쉬웠습니다.',
     patientName:'기록전용이름', symptoms:'기록전용증상', selectedSituations:['리뷰 답변'], selectedTreatments:['한약'],
@@ -200,7 +233,7 @@ test('fixed follow-up can add only a reviewed name-free effect while retaining a
       await assert.rejects(reviewFixedSymptoms(form, '고정 본문'), { status:503 });
     });
   }
-  const longEffect = '몸의 수분 흐름을 조절해 발목의 붓기를 가라앉히도록 돕습니다. '.repeat(5).trim();
+  const longEffect = (effectParagraph + ' ').repeat(6).trim();
   const longVerdict = { items, effectParagraph:longEffect,
     formulaEffects:[{ ...formulaEffects[0], action:'수분 흐름을 조절해', patientQuote:longEffect }] };
   await t.test('an over-target reviewed paragraph gets one shorter, fully reviewed replacement', async st => {
@@ -211,6 +244,12 @@ test('fixed follow-up can add only a reviewed name-free effect while retaining a
     const request = JSON.parse(String(mock.mock.calls[1].arguments[1]?.body));
     assert.match(request.systemInstruction.parts[0].text, /공백 포함 120자 이내/);
     assert.equal(JSON.parse(request.contents[0].parts[0].text).effectDraft, longEffect);
+  });
+  await t.test('a shorter paraphrase of a verified effect is discarded', async st => {
+    const reworded = '수분 흐름을 조절해 발목이 편하도록 돕습니다.';
+    providerSequence(st, [longVerdict, { items, effectParagraph: reworded,
+      formulaEffects: [{ ...formulaEffects[0], patientQuote: reworded }] }]);
+    assert.equal((await reviewFixedSymptoms(form, '고정 본문')).effectParagraph, longEffect);
   });
   await t.test('a failed shortening pass preserves the complete approved paragraph', async st => {
     const mock = providerSequence(st, [longVerdict, { items, formulaEffects:[], effectParagraph:'짧은 문구' }]);
