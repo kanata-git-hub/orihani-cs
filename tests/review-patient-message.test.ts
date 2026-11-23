@@ -12,7 +12,7 @@ function provider(t: TestContext, verdict: unknown, options: { version?: string;
   process.env.GEMINI_API_KEY = 'test-key';
   t.after(() => { if (original === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = original; });
   return t.mock.method(globalThis, 'fetch', async (_url: Parameters<typeof fetch>[0], _options?: RequestInit) => new Response(JSON.stringify({
-    modelVersion: options.version ?? 'gemini-4-neon',
+    modelVersion: options.version ?? 'gemini-4-argon',
     candidates: [{ finishReason: options.finish ?? 'STOP', content: { parts: [{ text: JSON.stringify(verdict) }] } }],
   }), { status: options.upstream ?? 200 }));
 }
@@ -21,7 +21,7 @@ function providerSequence(t: TestContext, verdicts: unknown[]) {
   const mock = provider(t, verdicts[0]);
   let index = 0;
   mock.mock.mockImplementation(async () => new Response(JSON.stringify({
-    modelVersion: 'gemini-4-neon',
+    modelVersion: 'gemini-4-argon',
     candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(verdicts[Math.min(index++, verdicts.length - 1)]) }] } }],
   })));
   return mock;
@@ -98,7 +98,7 @@ test('other private situations also trim repeated words without changing the clo
   assert.deepEqual(await reviewFree(form, draft), { ...draft, responseDraft: short });
 });
 
-test('public review uses the published words and a separate editorial brief for Neon', async t => {
+test('public review uses the published words and a separate editorial brief for Argon', async t => {
   const context = { ...freeInput, input: '한약을 받으러 갔는데 기다리는 동안 아무 안내가 없어서 아쉬웠습니다.',
     patientName:'기록전용이름', symptoms:'기록전용증상', selectedSituations:['리뷰 답변'], selectedTreatments:['한약'],
     prescriptionReferences:['원내Q27'], direction:'짧게' };
@@ -147,7 +147,7 @@ test('keeps all three acceptable sections and same-child address, normalizing th
     assert.deepEqual(await reviewFree(freeInput, draft), { ...draft, responseDraft: draft.responseDraft.replaceAll('\\n', '\n') });
   }
   const request = mock.mock.calls[0].arguments;
-  assert.equal(request[0], 'https://generativelanguage.googleapis.com/v1beta/models/gemini-4-neon:generateContent');
+  assert.equal(request[0], 'https://generativelanguage.googleapis.com/v1beta/models/gemini-4-argon:generateContent');
   const data = JSON.parse(String(request[1]?.body));
   assert.equal(data.generationConfig.thinkingConfig.thinkingLevel, 'MEDIUM');
   assert.match(data.systemInstruction.parts[0].text, /별하님.*김별하님.*모두 허용/);
@@ -206,7 +206,7 @@ test('fixed review fails closed when a real symptom is omitted, duplicated, reor
     provider(st, { items: [{ index: 0, kind: 'prescription' }] });
     await assert.rejects(reviewFixedSymptoms({ ...form, symptoms: '민트제제' }, '승인 문장'), /질환·증상/);
   });
-  await t.test('a known prescription cannot be rendered if Neon labels it a symptom', async st => {
+  await t.test('a known prescription cannot be rendered if Argon labels it a symptom', async st => {
     provider(st, { items: [{ index: 0, kind: 'symptom' }] });
     await assert.rejects(reviewFixedSymptoms({ ...form, symptoms: '온청음' }, '승인 문장'), /질환·증상/);
   });
@@ -277,7 +277,7 @@ test('incomplete verdicts, private content, and staff text in the patient copy f
     ['marker in staff tips', { ...clean, status: 'revise', staffTip: '###2###문자' }, {}],
     ['staff label in patient output', { ...clean, status: 'revise', responseDraft: '안녕하세요.\n가이드: 예약 변경 확인' }, {}],
     ['wrong model', keep, { version: 'gemini-3.6-flash' }],
-    ['retired review model', keep, { version: 'gemini-4-argon' }],
+    ['unexpected review model', keep, { version: 'gemini-4-neon' }],
     ['incomplete', keep, { finish: 'MAX_TOKENS' }],
   ] as const) {
     await t.test(name, async st => {
@@ -287,8 +287,8 @@ test('incomplete verdicts, private content, and staff text in the patient copy f
   }
 });
 
-test('accepts versioned Neon responses', async t => {
-  provider(t, keep, { version: 'gemini-4-neon-001' });
+test('accepts versioned Argon responses', async t => {
+  provider(t, keep, { version: 'gemini-4-argon-001' });
   assert.deepEqual(await reviewFree(freeInput, clean), clean);
 });
 
