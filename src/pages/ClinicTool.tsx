@@ -48,11 +48,8 @@ export function ClinicTool() {
   const isDirectorAccount = user?.emailVerified === true && isDirectorEmail(user.email);
   const prescriptionName = isDirectorAccount ? storedPrescription : '';
   const hasFormInput = Boolean(patientName || symptoms || prescriptionName || input || direction || selectedTreatments.length);
-  // Older drafts stored the author alongside the other situation tags.
-  const hasStoredDraft = hasFormInput || storedSituations.length > 0;
-  const [directorOverride, setDirectorOverride] = useLocalStorage<boolean | null>(
-    'app_director_author', hasStoredDraft ? storedSituations.includes(DIRECTOR_AUTHOR) : null
-  );
+  // Author overrides apply only until this screen is reopened or refreshed.
+  const [directorOverride, setDirectorOverride] = useState<boolean | null>(null);
   const directorSelected = isDirectorAccount && (directorOverride ?? true);
   const situationTags = storedSituations.filter(tag => tag !== DIRECTOR_AUTHOR);
   const selectedSituations = directorSelected ? [...situationTags, DIRECTOR_AUTHOR] : situationTags;
