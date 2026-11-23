@@ -7,7 +7,8 @@ const ts = require('typescript');
 function loadModule(path, imports = {}) {
   const exported = {};
   const source = ts.transpileModule(fs.readFileSync(path, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+    fileName: path,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
   }).outputText;
   vm.runInNewContext(source, {
     exports: exported,
@@ -30,6 +31,49 @@ const followup = loadModule('src/herbalFollowup.ts', {
 });
 const constants = loadModule('src/constants/index.ts', {
   '../herbalFollowup.ts': followup, '../patientSymptoms.ts': symptoms, '../herbalDirections.ts': directions, '../publicReview.ts': reviews
+});
+
+test('director author resets on refresh while an unchecked button stays off on the current page', () => {
+  const React = require('react');
+  const { renderToStaticMarkup } = require('react-dom/server');
+  let user, saved, selector;
+  function capture(_type, props) {
+    if (props.id === 'situation-options') selector = props;
+    return null;
+  }
+  const { ClinicTool } = loadModule('src/pages/ClinicTool.tsx', {
+    react: React, 'react/jsx-runtime': { jsx: capture, jsxs: capture }, 'lucide-react': {}, 'motion/react': {},
+    '../constants': constants, '../components/TagSelector': {}, '../components/ResultCard': {},
+    '../contexts/AuthContext': { useAuth: () => ({ user }) }, '../directorAccount': loadModule('src/directorAccount.ts'),
+    '../firebase': {}, 'firebase/firestore': {}, '../services/geminiService': {},
+    '../herbalFollowup': followup, '../publicReview': reviews, '../patientSymptoms': symptoms, '../patientMessageText': format,
+    '../hooks/useLocalStorage': { useLocalStorage: (key, initial) => [
+      Object.hasOwn(saved, key) ? saved[key] : initial, value => { saved[key] = value; }
+    ] }
+  });
+  function mount(click = false) {
+    const renders = [];
+    function Screen() {
+      ClinicTool();
+      renders.push(selector.selectedOptions.includes('원장'));
+      if (click && renders.length === 1) selector.onToggle('원장');
+      return null;
+    }
+    renderToStaticMarkup(React.createElement(Screen));
+    return renders;
+  }
+  for (const email of ['orihani001@gmail.com', 'kanata840@gmail.com']) {
+    user = { uid: email, email, emailVerified: true };
+    saved = { app_input: '작성 중', app_situations: ['한약 복용/경과'] };
+    assert.deepEqual(mount(), [true]); // Legacy draft with no author selection.
+    saved.app_director_author = false;
+    assert.deepEqual(mount(true), [true, false]);
+    assert.deepEqual(mount(), [true]);
+  }
+  user = { uid: 'staff', email: 'staff@example.org', emailVerified: true };
+  saved = { app_director_author: true, app_situations: ['원장'] };
+  assert.deepEqual(mount(), [false]);
+  assert.ok(selector.groups.every(group => !group.options.includes('원장')));
 });
 
 function loadService(output) {
