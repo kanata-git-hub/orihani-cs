@@ -6,15 +6,22 @@ import { PATIENT_MESSAGE_LENGTH_TARGET } from './patientMessageText.ts';
 
 export const DIRECTOR_AUTHOR = '원장';
 export const HERBAL_PROGRESS_SITUATION = '한약 복용/경과';
-export const HERBAL_FOLLOWUP_SITUATION = '일반한약 첫 15일 마무리 안내';
+export const HERBAL_FOLLOWUP_SITUATION = '한약 마무리 안내';
+const LEGACY_HERBAL_FOLLOWUP_SITUATION = '일반한약 첫 15일 마무리 안내';
+
+export function normalizeHerbalFollowupSituations(situations: string[]): string[] {
+  return [...new Set(situations.map(situation => situation === LEGACY_HERBAL_FOLLOWUP_SITUATION
+    ? HERBAL_FOLLOWUP_SITUATION : situation))];
+}
 
 export function isHerbalFollowup(params: Pick<AnalyzeParams, 'selectedSituations'>) {
-  return params.selectedSituations.includes(HERBAL_FOLLOWUP_SITUATION);
+  return params.selectedSituations.some(situation =>
+    situation === HERBAL_FOLLOWUP_SITUATION || situation === LEGACY_HERBAL_FOLLOWUP_SITUATION);
 }
 
 function isOrdinaryHerbalProgress(situations: string[]): boolean {
   return situations.includes(HERBAL_PROGRESS_SITUATION) &&
-    !situations.includes(HERBAL_FOLLOWUP_SITUATION) && !isPublicReview(situations);
+    !isHerbalFollowup({ selectedSituations: situations }) && !isPublicReview(situations);
 }
 
 export function isStaffHerbalProgress(situations: string[]): boolean {
@@ -33,7 +40,7 @@ export function canStartHerbalCheckIn(params: AnalyzeParams, resolvedSymptoms: s
 
 export function herbalFollowupTreatmentError(params: AnalyzeParams): string | null {
   return isHerbalFollowup(params) && params.selectedTreatments.some(t => t === '교통사고' || t === '다이어트')
-    ? '첫 15일 마무리 안내는 교통사고·다이어트를 제외한 일반한약에 사용해 주세요.'
+    ? '한약 마무리 안내는 교통사고·다이어트를 제외한 일반한약에 사용해 주세요.'
     : null;
 }
 
@@ -72,10 +79,13 @@ export function buildHerbalFollowup(params: AnalyzeParams, effectParagraph = '')
   if (error) throw new Error(error);
   const name = (params.patientName || '').trim().replace(/님$/, '').trim();
   const symptoms = resolvePatientSymptoms(params);
+  // Already-open clients compare the complete fixed reply against their old template.
+  const legacy = params.selectedSituations.includes(LEGACY_HERBAL_FOLLOWUP_SITUATION) &&
+    !params.selectedSituations.includes(HERBAL_FOLLOWUP_SITUATION);
   return `###1###
-속마음: 첫 15일 복용을 마무리하며 남은 불편과 경과를 확인하는 안내입니다.
+속마음: ${legacy ? '첫 15일' : '처방받은 한약'} 복용을 마무리하며 남은 불편과 경과를 확인하는 안내입니다.
 
-가이드: 일반한약 복용 경과를 처음 확인하고, 내원하여 다음 치료를 상담하도록 안내합니다.
+가이드: 일반한약 복용 경과를 ${legacy ? '처음 ' : ''}확인하고, 내원하여 다음 치료를 상담하도록 안내합니다.
 
 ###2###
 ${name}님, 안녕하세요. 오리한의원입니다.
@@ -89,5 +99,5 @@ ${symptoms} 완화에는 꾸준한 치료가 중요합니다. 보통 2~3개월 �
 ###3###
 거절 시: 현재 상태와 남아 있는 불편함을 먼저 듣고, 경과 확인을 위한 내원을 안내해 주세요.
 
-핵심: 환자 이름과 질환·증상만 반영한 첫 안내 문자입니다. 복용 후 반응은 환자 답변으로 확인해 주세요.`;
+핵심: 환자 이름과 질환·증상만 반영한 ${legacy ? '첫' : '마무리'} 안내 문자입니다. 복용 후 반응은 환자 답변으로 확인해 주세요.`;
 }

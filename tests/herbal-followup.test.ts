@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildHerbalFollowup, herbalFollowupError, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
+import { buildHerbalFollowup, herbalFollowupError, isHerbalFollowup, isStaffHerbalProgress, normalizeHerbalFollowupSituations, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
 import { resolvePatientSymptoms } from '../src/patientSymptoms.ts';
 import { findDisclosedPrescription, getEffectPrescriptionNames, getReferencedPrescriptions, isKnownPrescriptionName } from '../src/prescriptionFields.ts';
 import { HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
@@ -144,4 +144,20 @@ test('fixed 15-day output uses the symptom and strips 온청음 with any extra o
   assert.throws(() => buildHerbalFollowup({ ...example, symptoms: '온청음', selectedTreatments: ['한약'] }), /증상/);
   const custom = { ...example, symptoms: '눈 주위 가려움, 원내A방', input: '처방명: 원내A방' };
   assert.equal(buildHerbalFollowup(custom), expected);
+});
+
+
+test('finishing a month supply uses the approved ending notice and accepts saved 15-day selections', () => {
+  const legacy = '일반한약 첫 15일 마무리 안내';
+  const form = { ...params, input: '한 달분 한약을 거의 다 드신 상황입니다.' };
+  const saved = { ...form, selectedSituations: [legacy] };
+  assert.equal(HERBAL_FOLLOWUP_SITUATION, '한약 마무리 안내');
+  assert.equal(buildHerbalFollowup(form), buildHerbalFollowup(params));
+  assert.equal(buildHerbalFollowup(saved).split(/###\d###/)[2], buildHerbalFollowup(form).split(/###\d###/)[2]);
+  assert.match(buildHerbalFollowup(saved), /첫 15일 복용/);
+  assert.equal(isHerbalFollowup(saved), true);
+  assert.equal(isStaffHerbalProgress([legacy, '한약 복용/경과']), false);
+  assert.deepEqual(normalizeHerbalFollowupSituations([legacy, '원장', HERBAL_FOLLOWUP_SITUATION]),
+    [HERBAL_FOLLOWUP_SITUATION, '원장']);
+  assert.doesNotMatch(buildHerbalFollowup(form), /첫 15일|처음 확인|첫 안내/);
 });

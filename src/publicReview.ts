@@ -1,7 +1,7 @@
 import type { AnalyzeParams } from './types/index.ts';
 
 export const PUBLIC_REVIEW_GREETING = '안녕하세요 오리한의원 대표원장 손영남 입니다.';
-export const REVIEW_FOLLOWUP_CONFLICT = '공개 리뷰 답글과 일반한약 첫 15일 안내 중 하나만 선택해 주세요.';
+export const REVIEW_FOLLOWUP_CONFLICT = '공개 리뷰 답글과 한약 마무리 안내 중 하나만 선택해 주세요.';
 
 export function isPublicReview(situations: string[]): boolean {
   return situations.includes('리뷰 답변');

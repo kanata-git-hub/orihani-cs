@@ -2,7 +2,7 @@ import { authFetch } from '../authFetch';
 import { buildSystemInstruction } from '../constants';
 import type { AnalyzeParams } from '../types';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage } from '../patientMessageText';
-import { canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
+import { canStartHerbalCheckIn, normalizeHerbalFollowupSituations, isStaffHerbalProgress, staffHerbalProgressContext, isHerbalFollowup, herbalFollowupError, buildHerbalFollowup, isFixedEffectParagraph } from '../herbalFollowup';
 import { buildPrivatePatientPrompt } from '../patientPrompt';
 import { fixedSymptomTerms, retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError } from '../patientSymptoms';
 import { getEnteredPrescriptionNames, getEffectPrescriptionNames, getReferencedPrescriptions, findDisclosedPrescription } from '../prescriptionFields';
@@ -17,7 +17,9 @@ export const analyzePatientMessage = async (form: AnalyzeParams) => {
   const publicReply = isPublicReview(form.selectedSituations);
   if (publicReply && isHerbalFollowup(form)) throw new PatientInputError(REVIEW_FOLLOWUP_CONFLICT);
   if (publicReply && !form.input.trim()) throw new PatientInputError('방문자가 남긴 리뷰 원문이나 별점을 입력해 주세요.');
-  const submitted = publicReply ? publicReviewContext(form.input, form.direction) : form;
+  const submitted = publicReply ? publicReviewContext(form.input, form.direction) : {
+    ...form, selectedSituations: normalizeHerbalFollowupSituations(form.selectedSituations)
+  };
   const field = inspectPatientSymptomInput(submitted);
   const staffProgress = isStaffHerbalProgress(submitted.selectedSituations);
   const params = staffProgress ? staffHerbalProgressContext(submitted, field.symptoms) : submitted;
