@@ -50,7 +50,7 @@ export class FixedSymptomInputError extends Error {
 }
 
 const fixed = shared + `
-첫 15일 안내 본문은 원장 승인 고정문구다. 그 안에 넣을 환자 개인의 실제 질환·증상을 식별한다.
+한약 마무리 안내 본문은 원장 승인 고정문구다. 그 안에 넣을 환자 개인의 실제 질환·증상을 식별한다.
 terms의 각 항목에 대해 배열 전체를 빠짐없이 입력 순서대로 판정한다. index는 0부터 시작하는 원래 번호이다. 이번 환자의 질환·증상만 symptom, 처방명은 prescription, 판단이 불분명하거나 타인·지시·단순 메모이거나 부정 여부·부위·기간이 왜곡될 항목은 uncertain이다. 모르는 항목을 추측하거나 생략하지 마라. 두 증상이 모두 확인되면 그중 하나만 골라서는 안 된다. 고정문구나 입력 항목을 새로 쓰지 마라.`;
 
 function unavailable() {

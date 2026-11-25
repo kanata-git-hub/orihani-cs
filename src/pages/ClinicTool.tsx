@@ -14,7 +14,7 @@ import { isDirectorEmail } from '../directorAccount';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { DIRECTOR_AUTHOR, HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, isHerbalFollowup, herbalFollowupTreatmentError } from '../herbalFollowup';
+import { DIRECTOR_AUTHOR, HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, canStartHerbalCheckIn, normalizeHerbalFollowupSituations, isStaffHerbalProgress, staffHerbalProgressContext, isHerbalFollowup, herbalFollowupTreatmentError } from '../herbalFollowup';
 import { isPublicReview, publicReviewContext, REVIEW_FOLLOWUP_CONFLICT } from '../publicReview';
 import { inspectPatientSymptomInput, resolvePatientSymptoms, selectedSymptomOptions, symptomInputError } from '../patientSymptoms';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from '../patientMessageText';
@@ -51,7 +51,7 @@ export function ClinicTool() {
   // Author overrides apply only until this screen is reopened or refreshed.
   const [directorOverride, setDirectorOverride] = useState<boolean | null>(null);
   const directorSelected = isDirectorAccount && (directorOverride ?? true);
-  const situationTags = storedSituations.filter(tag => tag !== DIRECTOR_AUTHOR);
+  const situationTags = normalizeHerbalFollowupSituations(storedSituations.filter(tag => tag !== DIRECTOR_AUTHOR));
   const selectedSituations = directorSelected ? [...situationTags, DIRECTOR_AUTHOR] : situationTags;
   const [isLoading, setIsLoading] = useState(false);
   const [savedResult, setResult] = useLocalStorage<(AnalysisResult & { reviewVersion: number; owner: string }) | null>('app_result', null);
@@ -123,7 +123,7 @@ export function ClinicTool() {
       return;
     }
     setStoredSituations(previous => {
-      const prev = previous.filter(tag => tag !== DIRECTOR_AUTHOR);
+      const prev = normalizeHerbalFollowupSituations(previous.filter(tag => tag !== DIRECTOR_AUTHOR));
       if (prev.includes(s)) return prev.filter(i => i !== s);
       const incompatible = s === '리뷰 답변' ? HERBAL_FOLLOWUP_SITUATION : s === HERBAL_FOLLOWUP_SITUATION ? '리뷰 답변' : undefined;
       return [...prev.filter(i => i !== incompatible), s];
