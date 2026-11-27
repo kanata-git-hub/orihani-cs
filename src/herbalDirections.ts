@@ -9,10 +9,31 @@ const retiredDirections = new RegExp([
   /\s*복용하시고[,\s]*(?:한약은\s*)?냉장\s*보관(?:해\s*주세요|해\s*주십시오|하세요|하시기\s*바랍니다)[.!]?/u.source,
 ].join(''), 'gu');
 
-export function herbalDirectionsFor(treatments: string[]): string {
+export const STAFF_HERBAL_DIRECTIONS_RULES = '직원 명의의 환자 문자에는 치료 선택에 따라 자동으로 덧붙이던 한의원의 정형 복약·보관 안내를 추가하지 않는다. 하루 두 번 복용·식전/식후·6시간 간격·냉장 보관으로 이루어진 일반한약 및 다이어트 정형 안내를 자동 삽입하거나 반복하지 않는다. 환자의 복용 이력·증상·경과 질문과 입력에서 확인한 개별 안내는 기존 기준대로 유지한다.';
+
+export function herbalDirectionsFor(treatments: string[], situations: string[] = []): string {
+  // Authenticated callers also validate who may select the director voice.
+  if (!situations.includes('원장')) return '';
+  if (situations.some(situation => ['한약 마무리 안내', '일반한약 첫 15일 마무리 안내'].includes(situation))) return '';
   if (treatments.includes('다이어트')) return DIET_HERBAL_DIRECTIONS;
   if (treatments.some(t => ['교통사고', '한약', '소화불량', '피로'].includes(t))) return HERBAL_DIRECTIONS;
   return '';
+}
+
+const dietDirectionSentences = DIET_HERBAL_DIRECTIONS.match(/[^.]+(?:\.|$)/gu)?.map(sentence => sentence.trim()) ?? [];
+
+/** Remove only the existing automatic clinic copy, never infer which other sentences are directions. */
+export function stripHerbalDirections(patient: string): string {
+  let clean = patient.replaceAll(DIET_HERBAL_DIRECTIONS, '').replaceAll(HERBAL_DIRECTIONS, '').replace(retiredDirections, '');
+  for (const sentence of dietDirectionSentences) clean = clean.replaceAll(sentence, '');
+  return clean.replace(/\n(?:[ \t]*\n){2,}/gu, '\n\n').trim();
+}
+
+export function applyHerbalDirectionsPolicy(patient: string, treatments: string[], situations: string[]): string {
+  const fixed = situations.some(situation => ['한약 마무리 안내', '일반한약 첫 15일 마무리 안내'].includes(situation));
+  return situations.includes('원장') && !fixed
+    ? withHerbalDirections(patient, herbalDirectionsFor(treatments, situations))
+    : stripHerbalDirections(patient);
 }
 
 export function withHerbalDirections(patient: string, directions: string): string {
@@ -27,3 +48,4 @@ export function withHerbalDirections(patient: string, directions: string): strin
   paragraphs.splice(position, 0, directions);
   return paragraphs.join('\n\n');
 }
+

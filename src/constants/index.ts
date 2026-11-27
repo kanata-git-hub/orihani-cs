@@ -1,6 +1,6 @@
 import { SYMPTOM_TREATMENT_OPTIONS } from '../patientSymptoms.ts';
 import { HERBAL_FOLLOWUP_SITUATION, HERBAL_PROGRESS_SITUATION, isHerbalFollowup, isStaffHerbalProgress } from '../herbalFollowup.ts';
-import { herbalDirectionsFor } from '../herbalDirections.ts';
+import { herbalDirectionsFor, STAFF_HERBAL_DIRECTIONS_RULES } from '../herbalDirections.ts';
 import { isPublicReview, PUBLIC_REVIEW_STYLE } from '../publicReview.ts';
 
 export const TREATMENTS = ["침", "약침", "도침", "초음파약침", "한약", ...SYMPTOM_TREATMENT_OPTIONS, "교통사고", "다이어트"];
@@ -126,7 +126,8 @@ export function buildClinicReference(treatments: string[], situations: string[],
   if (treatments.includes('초음파약침') || (discussesProcedure && shoulderInquiry)) instructions.push(ULTRASOUND_GUIDANCE);
   if (discussesProcedure && situations.includes('신환 상담/문의')) instructions.push(PROCEDURE_GUIDANCE);
 
-  const directions = isHerbalFollowup({ selectedSituations: situations }) ? '' : herbalDirectionsFor(treatments);
+  const directions = isHerbalFollowup({ selectedSituations: situations }) ? '' : herbalDirectionsFor(treatments, situations);
+  if (!situations.includes('원장')) instructions.push(STAFF_HERBAL_DIRECTIONS_RULES);
   if (directions) {
     instructions.push('선택된 치료의 원장 승인 복약 안내는 다음과 같다. 환자 문자에는 이 문구를 그대로 한 번만 넣고, 다른 횟수·시간대·식사 조건·보관법을 덧붙이거나 같은 안내를 되풀이하지 않는다.\n' + directions);
   }
@@ -148,3 +149,4 @@ export function buildSystemInstruction(treatments: string[], situations: string[
   return [BASE_INSTRUCTION, buildClinicReference(treatments, situations, clinicalText, herbalCheckIn),
     situations.includes('원장') ? DIRECTOR_VOICE : '', OUTPUT_FORMAT].filter(Boolean).join('\n\n');
 }
+

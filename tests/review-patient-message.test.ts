@@ -66,7 +66,7 @@ test('dedicated prescription names require effects in free and fixed review and 
 });
 
 test('long private replies keep their wording and directions when trimming repetitions', async t => {
-  const form = { ...freeInput, input: '복용 상태를 확인합니다.', symptoms: '소화불량', selectedSituations: ['한약 복용/경과'] };
+  const form = { ...freeInput, input: '복용 상태를 확인합니다.', symptoms: '소화불량', selectedSituations: ['원장', '한약 복용/경과'] };
   const directions = '한약은 하루 두 번 식후에 복용하시고, 냉장 보관해 주세요.';
   const question = '지난번 처방받으신 한약은 잘 챙겨 드시고 계실까요?';
   const body = '안녕하세요.\n\n' + (question + ' ').repeat(13).trim();
@@ -96,6 +96,22 @@ test('other private situations also trim repeated words without changing the clo
   const form = { ...freeInput, input: '예약 시간 문의', selectedSituations: ['원장', '예약 유도/확정'] };
   providerSequence(t, [keep, { status: 'revise', ...draft, responseDraft: short }]);
   assert.deepEqual(await reviewFree(form, draft), { ...draft, responseDraft: short });
+});
+
+test('staff review removes dosing instructions even if the reviewer keeps or reintroduces them', async t => {
+  const directions = '한약은 하루 두 번 식후에 복용하시고, 냉장 보관해 주세요.';
+  const patient = '안녕하세요. 불편하셨던 증상은 전과 비교해 어떠신가요?';
+  const form = { ...freeInput, input:'복용 경과 확인', symptoms:'소화불량', selectedSituations:['한약 복용/경과'] };
+  for (const status of ['keep', 'revise']) {
+    await t.test(status, async st => {
+      const draft = { ...clean, responseDraft: status === 'keep' ? patient + '\n\n' + directions : '안녕하세요.' };
+      const verdict = status === 'keep' ? keep : { status, ...clean, responseDraft:patient + '\n\n' + directions };
+      const mock = provider(st, verdict);
+      assert.equal((await reviewFree(form, draft, directions)).responseDraft, patient);
+      const request = JSON.parse(String(mock.mock.calls[0].arguments[1]?.body));
+      assert.match(request.systemInstruction.parts[0].text, /직원 명의의 환자 문자에는 치료 선택에 따라 자동으로 덧붙이던/);
+    });
+  }
 });
 
 test('public review uses the published words and a separate editorial brief for Argon', async t => {
@@ -510,3 +526,4 @@ test('a private formula needs a staff-supplied action to justify an explanation'
     assert.deepEqual(await reviewFree({ ...input, direction: patientQuote }, draft), draft);
   });
 });
+

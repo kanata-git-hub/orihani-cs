@@ -5,7 +5,7 @@ import { analysisEndpoint } from '../analysisApi.ts';
 import { authenticatedApi } from '../serverSecurity.ts';
 import { buildHerbalFollowup, HERBAL_FOLLOWUP_SITUATION } from '../src/herbalFollowup.ts';
 import { MESSAGE_REVIEW_VERSION, parseAnalysisResult } from '../src/patientMessageText.ts';
-import { DIET_HERBAL_DIRECTIONS, HERBAL_DIRECTIONS } from '../src/herbalDirections.ts';
+import { DIET_HERBAL_DIRECTIONS, HERBAL_DIRECTIONS, STAFF_HERBAL_DIRECTIONS_RULES } from '../src/herbalDirections.ts';
 import { PUBLIC_REVIEW_GREETING } from '../src/publicReview.ts';
 import { getEnteredPrescriptionNames, getEffectPrescriptionNames } from '../src/prescriptionFields.ts';
 import { inspectPatientSymptomInput } from '../src/patientSymptoms.ts';
@@ -112,6 +112,55 @@ test('a dedicated prescription reaches ordinary and fixed writing and review, bu
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
+});
+
+test('staff directions are removed after review, director directions appear once, and completion notices remain unchanged', async () => {
+  const app = express();
+  const greeting = '안녕하세요. 한약 복용 후 불편은 어떠신가요?';
+  const encoded = '###1###\n경과 확인\n###2###\n' + greeting + '\n\n' + HERBAL_DIRECTIONS + '\n###3###\n증상을 확인해 주세요.';
+  let seenDirections = '', seenRules = '';
+  app.use('/generate', analysisEndpoint(async rules => {
+    seenRules = rules;
+    return encoded;
+  }, (req, res, next) => {
+    res.locals.isDirectorAccount = req.headers.authorization === 'director';
+    next();
+  }, {
+    async reviewFree(_source, draft, directions) {
+      seenDirections = directions;
+      // A reviewer can accidentally copy the original directions back into its result.
+      return { ...draft, responseDraft: greeting + '\n\n' + HERBAL_DIRECTIONS + '\n\n' + HERBAL_DIRECTIONS };
+    },
+    async reviewFixedSymptoms() { return { terms: ['소화불량'], effectParagraph: '' }; },
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const url = 'http://127.0.0.1:' + (server.address() as { port: number }).port + '/generate';
+  const base = { patientName: '가상', symptoms: '소화불량', prescriptionName: '', input: HERBAL_DIRECTIONS,
+    direction: '', selectedTreatments: ['한약'], selectedSituations: [] as string[] };
+  const submit = async (selectedSituations: string[], auth: string) => {
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({ systemInstruction: 'clinic', prompt: HERBAL_DIRECTIONS, patientContext: { ...base, selectedSituations } }) });
+    assert.equal(response.status, 200);
+    return parseAnalysisResult((await response.json()).text).responseDraft;
+  };
+  try {
+    const staff = await submit([], 'staff');
+    assert.equal(staff, greeting);
+    assert.equal(seenDirections, '');
+    assert.ok(!seenRules.includes(HERBAL_DIRECTIONS));
+    const director = await submit(['원장'], 'director');
+    assert.equal(director.split(HERBAL_DIRECTIONS).length - 1, 1);
+    assert.equal(seenDirections, HERBAL_DIRECTIONS);
+    assert.ok(seenRules.includes(HERBAL_DIRECTIONS));
+    for (const fixed of [HERBAL_FOLLOWUP_SITUATION, '일반한약 첫 15일 마무리 안내']) {
+      const result = await submit(['원장', fixed], 'director');
+      assert.ok(!result.includes(HERBAL_DIRECTIONS));
+      assert.doesNotMatch(result, /냉장|하루 두 번/);
+      const expected = parseAnalysisResult(buildHerbalFollowup({ ...base, selectedSituations: ['원장', fixed] })).responseDraft;
+      assert.equal(result, expected);
+    }
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 
 test('authenticated generation returns only reviewed free messages and canonical fixed messages', async () => {
@@ -284,16 +333,17 @@ test('authenticated generation returns only reviewed free messages and canonical
 
     const legacy = await request('hello');
     assert.equal((await legacy.json()).reviewed, true);
-    assert.equal(seenRules, 'clinic');
+    assert.equal(seenRules, 'clinic\n' + STAFF_HERBAL_DIRECTIONS_RULES);
 
-    // No model has supplied directions. The selected buttons alone determine the final copy.
+    // Preserve the existing treatment conditions, gated by the selected author voice.
     const buttons = ['교통사고', '다이어트', '한약', '소화불량', '피로'];
     for (const treatments of [...buttons.map(button => [button]), buttons, ['다이어트', '한약'],
       ['약침', '피로'], ['약침'], []]) {
-      const diet = treatments.includes('다이어트');
-      const regular = !diet && buttons.some(button => treatments.includes(button));
+      for (const director of [false, true]) {
+      const diet = director && treatments.includes('다이어트');
+      const regular = director && !diet && buttons.some(button => treatments.includes(button));
       const patientContext = { ...context, symptoms: '소화불량, 피로', input: '예약 시간 변경 문의',
-        selectedTreatments: treatments, selectedSituations: ['예약 변경/취소'] };
+        selectedTreatments: treatments, selectedSituations: director ? ['원장', '예약 변경/취소'] : ['예약 변경/취소'] };
       const baseReply = '희망하시는 시간을 알려주세요.';
       const response = await request(baseReply, { patientContext });
       assert.equal(response.status, 200, treatments.join(','));
@@ -306,18 +356,19 @@ test('authenticated generation returns only reviewed free messages and canonical
       if (diet) assert.doesNotMatch(result.responseDraft, /식후에 복용하/);
       assert.deepEqual([result.strategy, result.staffTip], ['내부 안내', '내부 팁']);
       assert.doesNotMatch(result.responseDraft, /오전 9|오후 4/);
+      }
     }
     const withDirections = await request('이번 약을 준비했습니다.\n\n' + HERBAL_DIRECTIONS, {
       patientContext: { ...context, selectedTreatments: ['한약', '피로'], selectedSituations: [] }
     });
     assert.equal(withDirections.status, 200);
-    assert.equal(parseAnalysisResult((await withDirections.json()).text).responseDraft.split(HERBAL_DIRECTIONS).length, 2);
+    assert.equal(parseAnalysisResult((await withDirections.json()).text).responseDraft.split(HERBAL_DIRECTIONS).length, 1);
     const textOnly = await request('확인해 드리겠습니다.', {
       patientContext: { ...context, selectedTreatments: [], selectedSituations: [], input: '지난번 다이어트 한약 문의' }
     });
     assert.equal(textOnly.status, 200);
     assert.equal(parseAnalysisResult((await textOnly.json()).text).responseDraft, '확인해 드리겠습니다.');
-    const dietContext = { ...context, selectedTreatments: ['한약', '다이어트'], selectedSituations: [] };
+    const dietContext = { ...context, selectedTreatments: ['한약', '다이어트'], selectedSituations: ['원장'] };
     for (const direction of ['', 'fixture: reviewed diet']) {
       const olderDraft = [appointment, HERBAL_DIRECTIONS, obsoleteDietLine, DIET_HERBAL_DIRECTIONS].join('\n\n');
       const response = await request(olderDraft, { patientContext: { ...dietContext, direction } });
@@ -342,3 +393,4 @@ test('authenticated generation returns only reviewed free messages and canonical
     }
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+

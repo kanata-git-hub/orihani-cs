@@ -2,7 +2,7 @@ import express, { type ErrorRequestHandler, type RequestHandler } from 'express'
 import { buildClinicReference, buildSystemInstruction } from './src/constants/index.ts';
 import { buildPrivatePatientPrompt } from './src/patientPrompt.ts';
 import { DIRECTOR_AUTHOR, buildHerbalFollowup, canStartHerbalCheckIn, isStaffHerbalProgress, staffHerbalProgressContext, fixedEffectLengthInstruction, fixedEffectLengthTarget, herbalFollowupError, isHerbalFollowup } from './src/herbalFollowup.ts';
-import { herbalDirectionsFor, withHerbalDirections } from './src/herbalDirections.ts';
+import { herbalDirectionsFor, withHerbalDirections, stripHerbalDirections, STAFF_HERBAL_DIRECTIONS_RULES } from './src/herbalDirections.ts';
 import { MESSAGE_REVIEW_VERSION, INVALID_PATIENT_MESSAGE, normalizePatientMessage, parseAnalysisResult } from './src/patientMessageText.ts';
 import { retainsAllFixedSymptoms, inspectPatientSymptomInput, resolvePatientSymptoms, symptomInputError, SYMPTOM_TREATMENT_OPTIONS } from './src/patientSymptoms.ts';
 import { findDisclosedPrescription, getEnteredPrescriptionNames, getEffectPrescriptionNames, getReferencedPrescriptions } from './src/prescriptionFields.ts';
@@ -10,6 +10,7 @@ import type { AnalyzeParams } from './src/types/index.ts';
 import { FixedSymptomInputError, reviewFixedSymptoms, reviewFree } from './reviewPatientMessage.ts';
 import { requireUser } from './serverSecurity.ts';
 import { IncompleteEffectReview } from './prescriptionEffectReview.ts';
+import { buildClinicPrescriptionContext } from './src/clinicPrescriptions.ts';
 import { isPublicReview, publicReviewContext, publicReviewPrompt, REVIEW_FOLLOWUP_CONFLICT } from './src/publicReview.ts';
 
 type Context = Required<AnalyzeParams>;
@@ -92,7 +93,7 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         if (formulaNames.length) {
           const basis = { symptoms, input: context.input, direction: context.direction, prescriptionName: context.prescriptionName, formulaNames };
           const lengthGuide = fixedEffectLengthInstruction(fixedEffectLengthTarget(draft, formulaNames.length));
-          effectDraft = (await generate(fixedEffectWriting + '\n' + lengthGuide, JSON.stringify(basis)))?.trim() || '';
+          effectDraft = (await generate(fixedEffectWriting + '\n' + lengthGuide + buildClinicPrescriptionContext(formulaNames), JSON.stringify(basis)))?.trim() || '';
           if (!effectDraft) throw new Error(INVALID_PATIENT_MESSAGE);
         }
         const reviewed = await reviewers.reviewFixedSymptoms({ ...context, symptoms, prescriptionReferences }, draft, effectDraft);
@@ -104,7 +105,8 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
       } else {
         const treatments = context.selectedTreatments.filter(t => !SYMPTOM_TREATMENT_OPTIONS.includes(t));
         const clinicalText = [symptoms, context.input].filter(Boolean).join('\n');
-        const directions = herbalDirectionsFor(context.selectedTreatments);
+        const directorVoice = context.selectedSituations.includes(DIRECTOR_AUTHOR);
+        const directions = herbalDirectionsFor(context.selectedTreatments, context.selectedSituations);
         const herbalCheckIn = !context.input.trim() && canStartHerbalCheckIn(context, symptoms);
         const writingRules = patientContext || !isDirectorAccount
           ? buildSystemInstruction(context.selectedTreatments, context.selectedSituations, clinicalText, herbalCheckIn) : systemInstruction;
@@ -116,8 +118,10 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
           writingPrompt += '\n\n직원이 이번 환자에게 사용한 처방명(내부 참고용, 이름 출력 금지, 작용 설명에 반영)\n' +
             JSON.stringify({ prescriptionName: context.prescriptionName });
         }
-        const draft = parseAnalysisResult(await generate(writingRules, writingPrompt) || '');
-        draft.responseDraft = withHerbalDirections(draft.responseDraft, directions);
+        const formulaContext = publicReply ? '' : buildClinicPrescriptionContext(getEffectPrescriptionNames(context.input, context.direction, context.prescriptionName));
+        const directionRules = !publicReply && !directorVoice ? '\n' + STAFF_HERBAL_DIRECTIONS_RULES : '';
+        const draft = parseAnalysisResult(await generate(writingRules + formulaContext + directionRules, writingPrompt) || '');
+        draft.responseDraft = directorVoice || publicReply ? withHerbalDirections(draft.responseDraft, directions) : stripHerbalDirections(draft.responseDraft);
         const clinicReference = buildClinicReference(context.selectedTreatments, context.selectedSituations, clinicalText, herbalCheckIn);
         const source = { ...context, symptoms, selectedTreatments: treatments, prescriptionReferences, clinicReference };
         const result = await reviewers.reviewFree(source, draft, directions);
@@ -125,7 +129,9 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
         if (sections.some(part => typeof part !== 'string' || !part.trim() || /###\d+###/.test(part))) {
           throw new Error(INVALID_PATIENT_MESSAGE);
         }
-        const patient = withHerbalDirections(normalizePatientMessage(result.responseDraft).trim(), directions);
+        const reviewedPatient = normalizePatientMessage(result.responseDraft).trim();
+        const patient = directorVoice || publicReply ? withHerbalDirections(reviewedPatient, directions) : stripHerbalDirections(reviewedPatient);
+        if (!patient) throw new Error(INVALID_PATIENT_MESSAGE);
         text = `###1###\n${result.strategy}\n\n###2###\n${patient}\n\n###3###\n${result.staffTip}`;
       }
       if (findDisclosedPrescription(text, privateNames)) {
@@ -161,3 +167,4 @@ export function analysisEndpoint(generate: Generate, authenticate: RequestHandle
   router.use(invalidBody);
   return router;
 }
+
