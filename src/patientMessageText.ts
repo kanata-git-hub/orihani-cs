@@ -15,7 +15,7 @@ export function isDeletionOnlyShortening(original: string, candidate: string): b
   return index === kept.length;
 }
 
-export const MESSAGE_REVIEW_VERSION = 6;
+export const MESSAGE_REVIEW_VERSION = 7;
 export const INVALID_PATIENT_MESSAGE = '환자 문자와 직원 안내를 구분할 수 없습니다. 다시 생성해 주세요.';
 
 export function normalizePatientMessage(text: string): string {
@@ -35,3 +35,4 @@ export function parseAnalysisResult(text: string): AnalysisResult {
   if (!responseDraft) throw new Error(INVALID_PATIENT_MESSAGE);
   return { strategy: sections[2].trim(), responseDraft, staffTip: sections[6].trim() };
 }
+

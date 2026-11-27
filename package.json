@@ -10,9 +10,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/storage-security.test.ts tests/auth-fetch.test.cjs tests/analysis-api.test.ts",
+    "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/storage-security.test.ts tests/auth-fetch.test.cjs tests/analysis-api.test.ts tests/clinic-prescriptions-api.test.ts",
     "test:rules": "node --test tests/firestore-security.cjs",
-    "test:patient": "node --experimental-strip-types --test tests/herbal-followup.test.ts tests/patient-fields.test.cjs tests/patient-message-text.test.ts tests/review-patient-message.test.ts tests/prescription-effect-review.test.ts"
+    "test:patient": "node --experimental-strip-types --test tests/herbal-followup.test.ts tests/patient-fields.test.cjs tests/patient-message-text.test.ts tests/review-patient-message.test.ts tests/prescription-effect-review.test.ts tests/clinic-prescriptions.test.ts tests/herbal-directions.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -48,3 +48,4 @@
     "@grpc/grpc-js": "1.14.7"
   }
 }
+

@@ -20,7 +20,8 @@ function loadModule(path, imports = {}) {
   return exported;
 }
 
-const rx = loadModule('src/prescriptionFields.ts');
+const clinic = loadModule('src/clinicPrescriptions.ts');
+const rx = loadModule('src/prescriptionFields.ts', { './clinicPrescriptions.ts': clinic });
 const symptoms = loadModule('src/patientSymptoms.ts', { './prescriptionFields.ts': rx });
 const directions = loadModule('src/herbalDirections.ts');
 const reviews = loadModule('src/publicReview.ts');
@@ -251,6 +252,23 @@ test('ordinary herbal inquiries receive grounded guidance without procedure or a
   assert.match(service.request().systemInstruction, /근골격계 시술 패키지/);
 });
 
+test('client writing rules add directions only for director voice and retain completion-notice exceptions', async () => {
+  const service = loadService();
+  for (const treatment of ['한약', '소화불량', '피로', '교통사고', '다이어트']) {
+    for (const director of [false, true]) {
+      await service.generate({ ...params, selectedTreatments: [treatment], selectedSituations: director ? ['원장'] : [] });
+      const expected = treatment === '다이어트' ? directions.DIET_HERBAL_DIRECTIONS : directions.HERBAL_DIRECTIONS;
+      assert.equal(service.request().systemInstruction.includes(expected), director);
+    }
+  }
+  for (const situation of [followup.HERBAL_FOLLOWUP_SITUATION, '일반한약 첫 15일 마무리 안내']) {
+    await service.generate({ ...params, patientName: '가상', symptoms: '소화불량', selectedTreatments: ['한약'], selectedSituations: ['원장', situation] });
+    assert.ok(!service.request().systemInstruction.includes(directions.HERBAL_DIRECTIONS));
+  }
+  await service.generate({ ...params, selectedTreatments: ['약침'], selectedSituations: ['원장'] });
+  assert.ok(!service.request().systemInstruction.includes(directions.HERBAL_DIRECTIONS));
+});
+
 test('an untagged shoulder inquiry keeps its specific guidance from either clinical input field', async () => {
   const service = loadService();
   for (const clinicalInput of [{ symptoms: '오십견' }, { input: '석회성 건염 치료 문의' }]) {
@@ -351,3 +369,4 @@ test('an earlier release or a partial symptom list cannot supply a copyable resp
   await assert.rejects(loadService({ reviewed:true, reviewVersion:2, symptoms:fields.symptoms,text:currentText }).generate(fields), /검수가 완료되지/);
   await assert.rejects(loadService({ reviewed:true, text:partial }).generate({ ...params, selectedSituations:['한약 복용/경과'] }), /검수가 완료되지/);
 });
+

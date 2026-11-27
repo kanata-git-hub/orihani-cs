@@ -1,3 +1,5 @@
+import { clinicPrescriptionNames } from './clinicPrescriptions.ts';
+
 // An exact clinic vocabulary, not a diagnosis inferred from the last syllable.
 // Private names and abbreviations can also be supplied explicitly as “처방명: …”.
 const formulaNames = `
@@ -17,7 +19,7 @@ const formulaNames = `
 죽엽석고탕 지백지황환 지실소비환 지실작약산 지황음자 진무탕 창부도담탕 천궁다조산 천왕보심단 청상방풍탕 청서익기탕
 청심연자음 청심연자탕 청폐탕 총명탕 통규활혈탕 통도산 팔미지황원 팔미지황탕 팔미지황환 팔물탕 팔진탕 평위산 향사육군자탕
 향사평위산 향소산 행소탕 형개연교탕 향부자팔물탕 화개산 황기건중탕 황금탕 황련아교탕 황련해독탕 황련탕 회춘양격산
-溫清飲 温清飲 半夏瀉心湯 半夏泻心汤`.trim().split(/\s+/);
+溫清飲 温清飲 半夏瀉心湯 半夏泻心汤`.trim().split(/\s+/).concat(clinicPrescriptionNames);
 
 const label = /(?:처방명|한약명|약명|처방|처방약|복용약)\s*[:：=]\s*/u;
 const privateFormula = /^(?:(?:가미|가감|원내|자체)[가-힣A-Za-z0-9-]{1,24}(?:탕|산|환|음|단|고|방)|[\p{Script=Han}]{2,20}[湯汤丸散方])$/u;
@@ -108,3 +110,4 @@ export function inspectSymptomField(raw: string, inputNames: string[] = []) {
     error,
   };
 }
+

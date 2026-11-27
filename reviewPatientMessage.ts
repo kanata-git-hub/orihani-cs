@@ -1,9 +1,9 @@
 import { fixedSymptomTerms } from './src/patientSymptoms.ts';
 import { effectReviewFor, IncompleteEffectReview } from './prescriptionEffectReview.ts';
-import { fixedEffectLengthInstruction, fixedEffectLengthTarget, isFixedEffectParagraph, isStaffHerbalProgress } from './src/herbalFollowup.ts';
+import { fixedEffectLengthInstruction, fixedEffectLengthTarget, isFixedEffectParagraph, isStaffHerbalProgress, isHerbalFollowup } from './src/herbalFollowup.ts';
 import type { AnalysisResult } from './src/types/index.ts';
 import { isDeletionOnlyShortening, normalizePatientMessage, PATIENT_MESSAGE_LENGTH_TARGET } from './src/patientMessageText.ts';
-import { withHerbalDirections } from './src/herbalDirections.ts';
+import { withHerbalDirections, stripHerbalDirections, STAFF_HERBAL_DIRECTIONS_RULES } from './src/herbalDirections.ts';
 import { isPublicReview, PUBLIC_REVIEW_GREETING, PUBLIC_REVIEW_STYLE } from './src/publicReview.ts';
 import { findDisclosedPrescription, getEnteredPrescriptionNames, getReferencedPrescriptions, inspectSymptomField } from './src/prescriptionFields.ts';
 
@@ -89,6 +89,7 @@ async function requestVerdict(instruction: string, data: object, schema: object)
 const shortenByDeletion = '이미 내용 검수가 끝난 문안이다. 같은 의미를 거듭 말한 낱말·구절·문장만 삭제한다. 인사, 화자, 어휘, 문장 순서, 질문과 종결어미는 원래 표현을 사용한다. 환자별 정보, 부정·조건, 수치, 처방별 작용, 복약 안내, 권유의 이유·시점 및 다음 행동을 보존한다. 삭제하면 뜻이 달라지거나 문장이 어색해지면 원문을 유지한다.';
 
 export async function reviewFree(input: ReviewInput, draft: AnalysisResult, directions = ''): Promise<AnalysisResult> {
+  if (!input.selectedSituations.includes('원장') || isHerbalFollowup(input)) directions = '';
   const approved = await reviewFreeDraft(input, draft);
   if (isPublicReview(input.selectedSituations)) return approved;
   const original = withHerbalDirections(approved.responseDraft, directions);
@@ -110,7 +111,9 @@ async function reviewFreeDraft(input: ReviewInput, draft: AnalysisResult, shorte
   const publicReply = isPublicReview(input.selectedSituations);
   const staffCheckIn = !input.input.trim() && isStaffHerbalProgress(input.selectedSituations);
   const effects = publicReply || staffCheckIn ? undefined : effectReviewFor(input.input, input.direction, input.prescriptionName);
-  const instruction = publicReply ? publicReplyReview : free + (effects?.instruction ?? '');
+  const staffVoice = !input.selectedSituations.includes('원장');
+  const instruction = publicReply ? publicReplyReview : free + (effects?.instruction ?? '') +
+    (staffVoice ? '\n' + STAFF_HERBAL_DIRECTIONS_RULES : '');
   let currentDraft = draft;
   let effectRepair: EffectRepair | undefined;
   const attempts = shortening ? 1 : 2;
@@ -148,6 +151,10 @@ async function reviewFreeDraft(input: ReviewInput, draft: AnalysisResult, shorte
       if (!text.startsWith(PUBLIC_REVIEW_GREETING) || !/[가-힣]/u.test(body) || body.includes(PUBLIC_REVIEW_GREETING)) {
         throw unavailable();
       }
+    }
+    if (!publicReply && staffVoice) {
+      result.responseDraft = stripHerbalDirections(result.responseDraft);
+      if (!result.responseDraft) throw unavailable();
     }
     try {
       effects?.validate(verdict, result.responseDraft, input.symptoms);
@@ -233,3 +240,4 @@ export async function reviewFixedSymptoms(input: ReviewInput, draft: string, eff
   }
   throw unavailable();
 }
+

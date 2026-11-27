@@ -1,4 +1,5 @@
 import { getEffectPrescriptionNames, isKnownPrescriptionName } from './src/prescriptionFields.ts';
+import { buildClinicPrescriptionContext } from './src/clinicPrescriptions.ts';
 
 const instruction = `
 effectPrescriptionNames는 사용한 처방명 칸과 이번 메시지, 추가 요청에서 찾은 내부 참고용 처방명이다. prescriptionName은 직원이 이번 환자에게 사용한 처방을 별도로 입력한 칸이다. 각 이름을 입력 순서대로 하나씩 확인하고 formulaEffects에 기록한다. 본문에서 이름을 숨기되 환자에게 설명할 작용은 숨기지 않는다.
@@ -100,6 +101,7 @@ export function effectReviewFor(message: string, direction: string, prescription
     }
     return [...quotes];
   }
-  return { names, instruction: names.length ? instruction : '',
+  return { names, instruction: names.length ? instruction + buildClinicPrescriptionContext(names) : '',
     properties: names.length ? { formulaEffects: effectSchema } : {}, required: names.length ? ['formulaEffects'] : [], validate };
 }
+
